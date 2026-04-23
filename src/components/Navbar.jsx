@@ -7,7 +7,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatAddress } from "@/utils/formatAddress";
 import { WalletButton } from "./WalletBtn";
-import { useWallet } from "@/hooks/useWalletV2";
+import { useWallet } from "@/hooks/useWallet";
 
 export default function Navbar() {
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -21,7 +21,7 @@ export default function Navbar() {
 	} = useWallet();
 	const balance = balances?.snapshot?.native?.balance;
 	const balanceSymbol = 'XLM';
-	
+
 	return (
 		<header className="relative flex justify-center py-6 px-4 md:px-0 overflow-visible bg-[#fffaf6] z-11111">
 			{/* 🔹 Background Grid Pattern */}

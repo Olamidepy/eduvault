@@ -1,7 +1,7 @@
 // components/WalletButton.jsx
 'use client';
 
-import { useWallet } from '@/hooks/useWalletV2';
+import { useWallet } from '@/hooks/useWallet';
 import { WalletStatus } from '@/providers/WalletProvider';
 
 /**
