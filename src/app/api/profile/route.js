@@ -1,21 +1,22 @@
 import { NextResponse } from "next/server";
+import { auditLog } from "@/lib/api/audit";
+import { withApiHardening } from "@/lib/api/hardening";
+import { escapeRegExp, normalizeWalletAddress, validateProfilePayload } from "@/lib/api/validation";
 import { sendWelcomeEmail } from "@/lib/email";
 import { getDb } from "@/lib/mongodb";
 import jwt from "jsonwebtoken";
 
 export async function POST(request) {
+  return withApiHardening(
+    request,
+    { route: "profile", rateLimit: { limit: 30, windowMs: 60_000 } },
+    async () => {
   try {
-    const body = await request.json();
-    const { fullName, email, institution, country, bio, walletAddress } = body || {};
-
-    if (!fullName || !email) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
+    const profile = validateProfilePayload(await request.json());
+    const { fullName, email, walletAddress, walletAddressLower } = profile;
 
     const db = await getDb();
     const users = db.collection("users");
-
-    const walletAddressLower = walletAddress ? walletAddress.toLowerCase() : null;
 
     // Check duplicate by email or wallet address (if provided)
     const duplicateQuery = walletAddress
@@ -32,14 +33,9 @@ export async function POST(request) {
     }
 
     const newUser = {
-      fullName,
-      email,
-      institution: institution || null,
-      country: country || null,
-      bio: bio || null,
-      walletAddress: walletAddress || null,
-      walletAddressLower: walletAddressLower || null,
+      ...profile,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
     const result = await users.insertOne(newUser);
@@ -82,17 +78,24 @@ export async function POST(request) {
 
     return response;
   } catch (error) {
-    console.error("Profile creation error:", error);
+    if (error.name === "ValidationError") throw error;
+    auditLog({ event: "profile_create_failed", route: "profile", method: "POST", status: 500, reason: error.message });
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+    }
+  );
 }
 
 // GET /api/profile?address=0x...
 // Returns { exists: boolean, user?: object }
 export async function GET(request) {
+  return withApiHardening(
+    request,
+    { route: "profile", rateLimit: { limit: 60, windowMs: 60_000 } },
+    async () => {
   try {
     const { searchParams } = new URL(request.url);
-    const address = searchParams.get("address");
+    const address = normalizeWalletAddress(searchParams.get("address"));
 
     if (!address) {
       return NextResponse.json({ error: "Missing address" }, { status: 400 });
@@ -105,7 +108,7 @@ export async function GET(request) {
       $or: [
         { walletAddress: address },
         { walletAddressLower: addressLower },
-        { walletAddress: { $regex: `^${address}$`, $options: "i" } },
+        { walletAddress: { $regex: `^${escapeRegExp(address)}$`, $options: "i" } },
       ],
     });
 
@@ -139,7 +142,10 @@ export async function GET(request) {
 
     return response;
   } catch (error) {
-    console.error("Profile lookup error:", error);
+    if (error.name === "ValidationError") throw error;
+    auditLog({ event: "profile_lookup_failed", route: "profile", method: "GET", status: 500, reason: error.message });
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+    }
+  );
 }

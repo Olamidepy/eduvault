@@ -1,15 +1,23 @@
 import { NextResponse } from "next/server";
+import { auditLog } from "@/lib/api/audit";
+import { withApiHardening } from "@/lib/api/hardening";
+import { sanitizeObject } from "@/lib/api/validation";
 import { pinata } from "@/lib/pinata";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
+  return withApiHardening(
+    request,
+    { route: "upload", rateLimit: { limit: 20, windowMs: 60_000 } },
+    async () => {
   try {
     const form = await request.formData();
     const file = form.get("file");
     const image = form.get("thumbnail");
 
     if (!file) {
+      auditLog({ event: "upload_failed", route: "upload", method: "POST", status: 400, reason: "missing_file" });
       return NextResponse.json({ error: "No document file provided" }, { status: 400 });
     }
 
@@ -34,22 +42,27 @@ export async function POST(request) {
         otherFields[key] = value;
       }
     }
+    const sanitizedFields = sanitizeObject(otherFields, {
+      title: 160,
+      description: 5000,
+      usageRights: 1000,
+    });
 
     // Include file URLs inside the metadata
     const metadataJSON = {
-      ...otherFields,
+      ...sanitizedFields,
       file: results.fileUrl,
       image: results.imgUrl || null,
       timestamp: new Date().toISOString(),
     };
-    console.log("Metadata JSON to upload:", metadataJSON);
+    auditLog({ event: "upload_metadata_prepared", route: "upload", method: "POST", status: 200 });
 
     // 4️⃣ Upload metadata JSON to Pinata
     const uploadedJson = await pinata.upload.public.json(metadataJSON);
     const jsonUrl = await pinata.gateways.public.convert(uploadedJson.cid);
     results.metadataUrl = jsonUrl;
 
-    console.log("Pinata Upload Results:", results);
+    auditLog({ event: "upload_complete", route: "upload", method: "POST", status: 200 });
 
     // 5️⃣ Return the JSON file URL
     return NextResponse.json({
@@ -59,10 +72,12 @@ export async function POST(request) {
       metadata: results.metadataUrl,
     });
   } catch (err) {
-    console.error("Upload error:", err);
+    auditLog({ event: "upload_failed", route: "upload", method: "POST", status: 500, reason: err.message });
     return NextResponse.json(
       { error: err.message || "Upload failed" },
       { status: 500 }
     );
   }
+    }
+  );
 }

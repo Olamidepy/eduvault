@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { auditLog } from "@/lib/api/audit";
+import { withApiHardening } from "@/lib/api/hardening";
+import { parsePagination } from "@/lib/api/validation";
 import { getDb } from "@/lib/mongodb";
 
 export const runtime = "nodejs";
@@ -6,12 +9,15 @@ export const runtime = "nodejs";
 // GET /api/market-materials
 // Returns all public materials across users, newest first
 export async function GET(request) {
+  return withApiHardening(
+    request,
+    { route: "market-materials", rateLimit: { limit: 120, windowMs: 60_000 } },
+    async () => {
   try {
     const db = await getDb();
 
     const url = new URL(request.url);
-    const page = Math.max(1, Number(url.searchParams.get("page") || "1"));
-    const pageSize = Math.max(1, Math.min(50, Number(url.searchParams.get("pageSize") || "12")));
+    const { page, pageSize } = parsePagination(url.searchParams);
 
     const query = { visibility: "public" };
     const total = await db.collection("materials").countDocuments(query);
@@ -36,7 +42,10 @@ export async function GET(request) {
       { status: 200 }
     );
   } catch (err) {
-    console.error("Market materials error:", err);
+    if (err.name === "ValidationError") throw err;
+    auditLog({ event: "market_materials_failed", route: "market-materials", method: "GET", status: 500, reason: err.message });
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+    }
+  );
 }

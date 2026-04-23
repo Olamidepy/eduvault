@@ -191,6 +191,28 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+### Test workflows
+
+Run the Solidity prototype tests:
+
+```bash
+npm run test:contracts
+```
+
+Run backend validation, rate-limit, and indexer tests:
+
+```bash
+npm run test:backend
+```
+
+Run the full local test baseline:
+
+```bash
+npm test
+```
+
+Backend schema and route contracts are documented in [`docs/backend-contracts.md`](docs/backend-contracts.md).
+
 ## Local Development Setup
 
 1. Install dependencies.

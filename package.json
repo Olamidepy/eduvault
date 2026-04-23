@@ -18,6 +18,10 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest"
+    "test": "npm run test:contracts && npm run test:backend",
+    "test:contracts": "hardhat test",
+    "test:backend": "node --test tests/backend/*.test.mjs",
+    "indexer:stellar": "node scripts/run-stellar-indexer.mjs"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.6.1",
@@ -39,17 +43,21 @@
     "wagmi": "^2.19.5"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.1.2",
     "@tailwindcss/postcss": "^4.2.3",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react-swc": "^4.3.0",
     "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^10.2.1",
+    "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.4",
     "jest-axe": "^10.0.0",
     "jsdom": "^29.0.2",
     "tailwindcss": "^4.2.3",
     "vitest": "^4.1.5"
+    "ethers": "^6.15.0",
+    "hardhat": "^2.26.3",
+    "tailwindcss": "^4.2.3"
   }
 }

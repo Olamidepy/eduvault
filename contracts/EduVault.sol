@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
 contract EduVault is ERC721URIStorage {
-    using Counters for Counters.Counter;
-    Counters.Counter private _tokenIdCounter;
+    uint256 private _nextTokenId;
 
     // Mapping from owner to list of owned token IDs
     mapping(address => uint256[]) private _ownedTokens;
@@ -15,13 +13,11 @@ contract EduVault is ERC721URIStorage {
 
     // Allow anyone to mint their own NFT
     function mint(string memory uri) external {
-        uint256 tokenId = _tokenIdCounter.current();
-        _tokenIdCounter.increment();
+        uint256 tokenId = _nextTokenId;
+        _nextTokenId += 1;
 
         _safeMint(msg.sender, tokenId);
         _setTokenURI(tokenId, uri);
-
-        _ownedTokens[msg.sender].push(tokenId);
     }
 
     // Get all token IDs owned by a specific address

@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { auditLog } from "@/lib/api/audit";
+import { withApiHardening } from "@/lib/api/hardening";
+import { validateMaterialPayload } from "@/lib/api/validation";
 import jwt from "jsonwebtoken";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
@@ -19,26 +22,18 @@ async function getUserFromCookie(request) {
 }
 
 export async function POST(request) {
+  return withApiHardening(
+    request,
+    { route: "materials", rateLimit: { limit: 40, windowMs: 60_000 } },
+    async () => {
   try {
     const user = await getUserFromCookie(request);
     if (!user) {
+      auditLog({ event: "auth_failed", route: "materials", method: "POST", status: 401 });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const {
-      title,
-      description,
-      price,
-      usageRights,
-      visibility,
-      thumbnailUrl,
-      fileUrl,
-    } = body || {};
-
-    if (!title || !fileUrl) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
+    const material = validateMaterialPayload(await request.json());
 
     const db = await getDb();
 
@@ -56,28 +51,32 @@ export async function POST(request) {
 
     const doc = {
       userAddress,
-      title,
-      description: description || "",
-      price: typeof price === "number" ? price : Number(price) || 0,
-      usageRights: usageRights || "",
-      visibility: visibility || "private",
-      thumbnailUrl: thumbnailUrl || null,
-      fileUrl,
+      ...material,
       createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     const result = await db.collection("materials").insertOne(doc);
+    auditLog({ event: "material_created", route: "materials", method: "POST", status: 201, actor: user.sub });
     return NextResponse.json({ id: result.insertedId, ...doc }, { status: 201 });
   } catch (err) {
-    console.error("Create material error:", err);
+    if (err.name === "ValidationError") throw err;
+    auditLog({ event: "material_create_failed", route: "materials", method: "POST", status: 500, reason: err.message });
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+    }
+  );
 }
 
 export async function GET(request) {
+  return withApiHardening(
+    request,
+    { route: "materials", rateLimit: { limit: 80, windowMs: 60_000 } },
+    async () => {
   try {
     const user = await getUserFromCookie(request);
     if (!user) {
+      auditLog({ event: "auth_failed", route: "materials", method: "GET", status: 401 });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -91,7 +90,10 @@ export async function GET(request) {
 
     return NextResponse.json(items);
   } catch (err) {
-    console.error("List materials error:", err);
+    if (err.name === "ValidationError") throw err;
+    auditLog({ event: "material_list_failed", route: "materials", method: "GET", status: 500, reason: err.message });
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+    }
+  );
 }
