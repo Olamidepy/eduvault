@@ -319,3 +319,84 @@ fn updates_sale_terms_and_status_and_supports_quote_lookup() {
         )
     );
 }
+
+#[test]
+fn rejects_empty_metadata_uri() {
+    let env = Env::default();
+    let (_contract_id, client) = install_contract(&env);
+    env.mock_all_auths();
+
+    let creator = Address::generate(&env);
+    let result = client.try_register_material(
+        &creator,
+        &String::from_str(&env, ""),
+        &bytes32(&env, 1),
+        &bytes32(&env, 2),
+        &default_quotes(&env),
+        &default_payout_shares(&env),
+    );
+
+    assert_eq!(result, Err(Ok(RegistryError::EmptyMetadataUri)));
+}
+
+#[test]
+fn rejects_invalid_asset_in_quotes() {
+    let env = Env::default();
+    let (_contract_id, client) = install_contract(&env);
+    env.mock_all_auths();
+
+    let creator = Address::generate(&env);
+    let invalid_quotes = vec![
+        &env,
+        AssetQuote {
+            asset: Address::generate(&env),
+            amount: -1, // Invalid negative amount
+        },
+    ];
+
+    let result = client.try_register_material(
+        &creator,
+        &metadata_uri(&env),
+        &bytes32(&env, 1),
+        &bytes32(&env, 2),
+        &invalid_quotes,
+        &default_payout_shares(&env),
+    );
+
+    assert_eq!(result, Err(Ok(RegistryError::InvalidQuoteAmount)));
+}
+
+#[test]
+fn rejects_excessive_payout_shares() {
+    let env = Env::default();
+    let (_contract_id, client) = install_contract(&env);
+    env.mock_all_auths();
+
+    let creator = Address::generate(&env);
+    let excessive_payouts = vec![
+        &env,
+        PayoutShare {
+            recipient: Address::generate(&env),
+            share_bps: 5_000,
+        },
+        PayoutShare {
+            recipient: Address::generate(&env),
+            share_bps: 5_000,
+        },
+        PayoutShare {
+            recipient: Address::generate(&env),
+            share_bps: 1_000, // Exceeds 10,000 basis points
+        },
+    ];
+
+    let result = client.try_register_material(
+        &creator,
+        &metadata_uri(&env),
+        &bytes32(&env, 1),
+        &bytes32(&env, 2),
+        &default_quotes(&env),
+        &excessive_payouts,
+    );
+
+    assert_eq!(result, Err(Ok(RegistryError::InvalidPayoutShareSum)));
+}
