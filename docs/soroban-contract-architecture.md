@@ -205,20 +205,21 @@ Frontend and backend code can depend on the following minimum read and write sur
 
 ```text
 register_material(
+  creator,
   metadata_uri,
   metadata_hash,
   rights_hash,
   quotes,
   payout_shares
-) -> material_id
+) -> Result<material_id, RegistryError>
 
-update_sale_terms(material_id, quotes, payout_shares)
+update_sale_terms(material_id, quotes, payout_shares) -> Result<(), RegistryError>
 
-set_material_status(material_id, status)
+set_material_status(material_id, status) -> Result<(), RegistryError>
 
-get_material(material_id) -> MaterialRecord
+get_material(material_id) -> Result<MaterialRecord, RegistryError>
 
-get_quote(material_id, asset) -> Option<AssetQuote>
+get_quote(material_id, asset) -> Result<Option<AssetQuote>, RegistryError>
 ```
 
 Auth expectations:
@@ -273,10 +274,11 @@ Required fields:
 
 - `materialId`
 - `creator`
+- `metadataUri`
 - `metadataHash`
 - `rightsHash`
 - `status`
-- `acceptedAssets`
+- `quotes`
 - `payoutShares`
 - `ledger`
 
@@ -292,7 +294,8 @@ Emitter: `MaterialRegistry`
 Required fields:
 
 - `materialId`
-- `acceptedAssets`
+- `creator`
+- `quotes`
 - `payoutShares`
 - `status`
 - `ledger`

@@ -20,8 +20,36 @@ on:
       - ".github/workflows/contracts.yml"
 
 jobs:
+  soroban:
+    name: Soroban Contract Checks
+    if: ${{ hashFiles('soroban/**/Cargo.toml') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            soroban -> soroban/target
+
+      - name: Run Soroban tests
+        working-directory: soroban
+        run: cargo test
+
+      - name: Build Soroban contract WASM
+        working-directory: soroban
+        run: cargo build --target wasm32v1-none --release
+
   solidity:
     name: Solidity Prototype Checks
+    if: ${{ hashFiles('contracts/**/*.sol') != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

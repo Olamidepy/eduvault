@@ -107,6 +107,7 @@ Stellar documentation confirms that Soroban is integrated into the existing Stel
 - File persistence: IPFS pinning through Pinata
 - Wallet prototype: wagmi, RainbowKit, WalletConnect, and Coinbase Wallet support
 - Smart contract prototype: Solidity ERC-721 proof of concept in [`contracts/EduVault.sol`](contracts/EduVault.sol)
+- Soroban contract work: initial Rust `MaterialRegistry` implementation in [`soroban/contracts/material-registry`](soroban/contracts/material-registry)
 
 ### Proposed Stellar-native architecture
 
@@ -166,6 +167,7 @@ Examples below use `npm`, but `pnpm` or `bun` can also be used.
 
 - Node.js 20+
 - npm 10+ or pnpm
+- Rust toolchain with `cargo` and `wasm32v1-none` target for Soroban contract development
 - MongoDB 7+ or Docker
 - Pinata credentials for file uploads
 - A wallet for testing current prototype flows
@@ -201,13 +203,20 @@ Run the Solidity prototype tests:
 npm run test:contracts
 ```
 
+Run the Soroban `MaterialRegistry` tests:
+
+```bash
+cd soroban
+cargo test
+```
+
 Run backend validation, rate-limit, and indexer tests:
 
 ```bash
 npm run test:backend
 ```
 
-Run the full local test baseline:
+Run the current Node-side local baseline:
 
 ```bash
 npm test
