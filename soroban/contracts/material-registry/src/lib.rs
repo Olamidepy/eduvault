@@ -51,6 +51,7 @@ pub struct MaterialRecord {
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
+    UpgradeAdmin,
     CreatorNonce(Address),
     Material(BytesN<32>),
 }
@@ -72,6 +73,7 @@ pub enum RegistryError {
     InvalidPayoutShareSum = 11,
     MaterialAlreadyExists = 12,
     MaterialNotFound = 13,
+    NotAuthorized = 14,
 }
 
 #[contractevent(topics = ["material", "registered"], data_format = "vec")]
@@ -129,6 +131,7 @@ impl MaterialRegistry {
         validate_metadata_uri(&metadata_uri)?;
         validate_quotes(&quotes)?;
         validate_payout_shares(&payout_shares)?;
+        initialize_upgrade_admin_if_missing(&env, &creator);
 
         let next_nonce = get_creator_nonce(&env, &creator);
         let material_id = derive_material_id(&env, &creator, next_nonce);
@@ -242,6 +245,36 @@ impl MaterialRegistry {
         }
 
         Ok(None)
+    }
+
+    /// Transfer upgrade admin role to another address.
+    pub fn set_upgrade_admin(
+        env: Env,
+        current_admin: Address,
+        next_admin: Address,
+    ) -> Result<(), RegistryError> {
+        current_admin.require_auth();
+        require_upgrade_admin(&env, &current_admin)?;
+        env.storage()
+            .persistent()
+            .set(&DataKey::UpgradeAdmin, &next_admin);
+        Ok(())
+    }
+
+    pub fn get_upgrade_admin(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::UpgradeAdmin)
+    }
+
+    /// Apply a Soroban WASM upgrade, controlled by an upgrade admin.
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), RegistryError> {
+        admin.require_auth();
+        require_upgrade_admin(&env, &admin)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
     }
 }
 
@@ -359,6 +392,26 @@ fn put_material(env: &Env, record: &MaterialRecord) {
     env.storage()
         .persistent()
         .set(&DataKey::Material(record.material_id.clone()), record);
+}
+
+fn initialize_upgrade_admin_if_missing(env: &Env, admin: &Address) {
+    if !env.storage().persistent().has(&DataKey::UpgradeAdmin) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::UpgradeAdmin, admin);
+    }
+}
+
+fn require_upgrade_admin(env: &Env, candidate: &Address) -> Result<(), RegistryError> {
+    let admin: Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::UpgradeAdmin)
+        .ok_or(RegistryError::NotAuthorized)?;
+    if admin != *candidate {
+        return Err(RegistryError::NotAuthorized);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

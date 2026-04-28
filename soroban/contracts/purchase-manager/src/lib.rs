@@ -71,6 +71,7 @@ pub struct EntitlementRecord {
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
+    Admin,
     PlatformConfig,
     AllowedAsset(Address),
     PurchaseNonce,
@@ -105,6 +106,7 @@ pub enum PurchaseError {
     // Admin errors
     NotAuthorized = 40,
     InvalidTreasury = 41,
+    UpgradeFailed = 42,
 }
 
 /// Event: purchase.completed
@@ -212,6 +214,9 @@ impl PurchaseManager {
             paused: false,
         };
 
+        env.storage()
+            .persistent()
+            .set(&DataKey::Admin, &admin);
         env.storage()
             .persistent()
             .set(&DataKey::PlatformConfig, &config);
@@ -463,6 +468,18 @@ impl PurchaseManager {
 
         Ok(())
     }
+
+    /// Upgrade contract WASM hash (admin only).
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), PurchaseError> {
+        admin.require_auth();
+        verify_admin(&env, &admin)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
+    }
 }
 
 // ============== Internal Functions ==============
@@ -475,9 +492,15 @@ fn get_platform_config(env: &Env) -> Result<PlatformConfig, PurchaseError> {
 }
 
 fn verify_admin(env: &Env, admin: &Address) -> Result<(), PurchaseError> {
-    // In a production contract, you might want stricter admin verification
-    // For now, we assume any authenticated caller can admin if contract is initialized
     let _ = get_platform_config(env)?;
+    let stored_admin: Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Admin)
+        .ok_or(PurchaseError::NotAuthorized)?;
+    if &stored_admin != admin {
+        return Err(PurchaseError::NotAuthorized);
+    }
     Ok(())
 }
 

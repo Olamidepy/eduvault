@@ -319,3 +319,30 @@ fn updates_sale_terms_and_status_and_supports_quote_lookup() {
         )
     );
 }
+
+#[test]
+fn bootstraps_and_transfers_upgrade_admin() {
+    let env = Env::default();
+    let (_contract_id, client) = install_contract(&env);
+    env.mock_all_auths();
+
+    let creator = Address::generate(&env);
+    let material_id = client.register_material(
+        &creator,
+        &metadata_uri(&env),
+        &bytes32(&env, 33),
+        &bytes32(&env, 44),
+        &default_quotes(&env),
+        &default_payout_shares(&env),
+    );
+    let _ = client.get_material(&material_id);
+
+    assert_eq!(client.get_upgrade_admin(), Some(creator.clone()));
+
+    let next_admin = Address::generate(&env);
+    client.set_upgrade_admin(&creator, &next_admin);
+    assert_eq!(client.get_upgrade_admin(), Some(next_admin.clone()));
+
+    let denied = client.try_set_upgrade_admin(&creator, &Address::generate(&env));
+    assert_eq!(denied, Err(Ok(RegistryError::NotAuthorized)));
+}
