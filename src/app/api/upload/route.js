@@ -149,10 +149,10 @@ export async function POST(request) {
           usageRights: 1000,
         })
 
-        // Include file URLs inside the metadata
+        // Include storage reference inside the metadata
         const metadataJSON = {
           ...sanitizedFields,
-          file: results.fileUrl,
+          storageKey: uploadedFile.cid,
           image: results.imgUrl || null,
           timestamp: new Date().toISOString(),
         }
@@ -175,10 +175,10 @@ export async function POST(request) {
           status: 200,
         })
 
-        // 8️⃣ Return the JSON file URL
+        // 8️⃣ Return the CID as storageKey
         return NextResponse.json({
           success: true,
-          fileUrl: results.fileUrl,
+          storageKey: uploadedFile.cid,
           image: results.imgUrl || '',
           metadata: results.metadataUrl,
         })

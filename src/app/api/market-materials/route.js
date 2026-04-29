@@ -7,6 +7,15 @@ import { ObjectId } from "mongodb";
 
 export const runtime = "nodejs";
 
+function sanitizeMaterial(doc) {
+  if (!doc) return doc;
+  const { storageKey, fileUrl, metadataUrl, ...safe } = doc;
+  return {
+    ...safe,
+    userAddress: safe.userAddress ?? safe.ownerAddress ?? null,
+  };
+}
+
 // GET /api/market-materials
 // Returns all public materials across users, newest first
 export async function GET(request) {
@@ -35,10 +44,7 @@ export async function GET(request) {
         return NextResponse.json({ error: "Material not found" }, { status: 404 });
       }
 
-      return NextResponse.json({
-        ...item,
-        userAddress: item.userAddress ?? item.ownerAddress ?? null,
-      });
+      return NextResponse.json(sanitizeMaterial(item));
     }
 
     // 2️⃣ Handle list fetch
@@ -54,11 +60,7 @@ export async function GET(request) {
       .limit(pageSize)
       .toArray();
 
-    // Normalize address field to ensure frontend consistency
-    const normalized = items.map((doc) => ({
-      ...doc,
-      userAddress: doc.userAddress ?? doc.ownerAddress ?? null,
-    }));
+    const normalized = items.map(sanitizeMaterial);
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

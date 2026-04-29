@@ -5,7 +5,9 @@ export default function useFocusTrap(isActive, onClose) {
     const triggerRef = useRef(null);
     const onCloseRef = useRef(onClose);
 
-    onCloseRef.current = onClose;
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    }, [onClose]);
 
     useEffect(() => {
         if (isActive) {

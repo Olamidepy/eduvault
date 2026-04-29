@@ -1,5 +1,37 @@
-import clientPromise from '@/lib/mongodb'
+import { getDb } from '@/lib/mongodb'
 import { NextResponse } from 'next/server'
+import { verifyDashboardToken } from "@/lib/auth/session";
+
+async function getUserFromCookie(request) {
+  const cookieHeader = request.headers.get("cookie") || "";
+  const cookieMatch = cookieHeader.match(/auth_token=([^;]+)/);
+  const token = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
+  if (!token) return null;
+  return await verifyDashboardToken(token, process.env.JWT_SECRET);
+}
+
+export async function GET(req) {
+  try {
+    const verification = await getUserFromCookie(req);
+    if (!verification || !verification.valid) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const db = await getDb();
+    const userAddress = verification.payload.walletAddress;
+
+    const purchases = await db
+      .collection('purchases')
+      .find({ buyerAddress: userAddress })
+      .sort({ purchasedAt: -1 })
+      .toArray();
+
+    return NextResponse.json(purchases);
+  } catch (error) {
+    console.error('Purchase List Error:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
 
 export async function POST(req) {
   try {
@@ -12,8 +44,7 @@ export async function POST(req) {
       )
     }
 
-    const client = await clientPromise
-    const db = client.db('eduvault')
+    const db = await getDb()
 
     // 1. Verify the transaction (Prototype Scope)
     // In a production environment, you would query the Stellar Horizon API here

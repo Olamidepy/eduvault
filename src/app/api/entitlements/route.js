@@ -1,4 +1,4 @@
-import clientPromise from '@/lib/mongodb'
+import { getDb } from '@/lib/mongodb'
 import { NextResponse } from 'next/server'
 
 export async function GET(req) {
@@ -14,8 +14,7 @@ export async function GET(req) {
       )
     }
 
-    const client = await clientPromise
-    const db = client.db('eduvault')
+    const db = await getDb()
 
     const entitlement = await db
       .collection('purchases')

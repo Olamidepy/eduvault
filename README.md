@@ -7,7 +7,7 @@ EduVault is an educational content marketplace that helps educators and student 
 
 ## Status
 
-EduVault is an in-development project. This repository already contains a working Next.js prototype for creator profiles, content uploads, IPFS-backed metadata, and marketplace flows. It also includes an earlier EVM/Celo proof of concept for tokenized ownership. The Drip Wave submission proposes the next milestone: moving payments, licensing, and entitlement checks onto Stellar and Soroban.
+EduVault is an in-development project. This repository already contains a working Next.js prototype for creator profiles, content uploads, IPFS-backed metadata, and marketplace flows. It also preserves an archived EVM/Celo proof of concept for tokenized ownership under `archive/legacy-evm/`. The Drip Wave submission proposes the next milestone: moving payments, licensing, and entitlement checks onto Stellar and Soroban.
 
 ## Overview
 
@@ -106,8 +106,7 @@ Stellar documentation confirms that Soroban is integrated into the existing Stel
 - Storage: MongoDB for profiles and catalog metadata
 - File persistence: IPFS pinning through Pinata
 - Wallet prototype: wagmi, RainbowKit, WalletConnect, and Coinbase Wallet support
-- Smart contract prototype: Solidity ERC-721 proof of concept in [`contracts/EduVault.sol`](contracts/EduVault.sol)
-- Soroban contract work: initial Rust `MaterialRegistry` implementation in [`soroban/contracts/material-registry`](soroban/contracts/material-registry)
+- Smart contract prototype: archived Solidity ERC-721 proof of concept in [`archive/legacy-evm/contracts/EduVault.sol`](archive/legacy-evm/contracts/EduVault.sol)
 
 ### Proposed Stellar-native architecture
 
@@ -142,22 +141,36 @@ Stellar documentation confirms that Soroban is integrated into the existing Stel
 
 ### Current prototype
 
-This repository currently includes an ERC-721 contract and EVM wallet integration used to validate the upload-to-ownership flow during early prototyping. That contract is not the final blockchain strategy for the Drip Wave submission.
+This repository preserves an archived ERC-721 contract and EVM wallet integration used to validate the upload-to-ownership flow during early prototyping. That contract is not the final blockchain strategy for the Drip Wave submission and should not be extended for new product work.
+
+## Legacy EVM Prototype
+
+The Solidity/Celo prototype is archived under `archive/legacy-evm/`.
+
+- It is retained for historical reference and tests only.
+- It must not be treated as the production chain layer.
+- New product work should target Stellar and Soroban instead.
+
+## Migration Checklist
+
+- Replace wallet-specific EVM assumptions in the UI with Stellar wallet flows.
+- Implement Soroban material registration and entitlement checks.
+- Replace legacy purchase/mint UI with Soroban-backed publishing and checkout.
+- Remove any production environment assumptions that reference Celo or the archived contract.
+- Keep legacy prototype tests isolated under archived contract checks only.
 
 ### Proposed Stellar implementation
 
 The proposed Stellar design is intentionally practical:
 
 - `MaterialRegistry` contract
-  - Registers a material ID, creator address, metadata hash, rights hash, accepted-asset quotes, and payout shares.
+  - Registers a material ID, creator address, metadata hash, price, accepted asset, and rights hash.
 - `PurchaseManager` contract
-  - Accepts payment in approved Stellar assets, records entitlement state, emits purchase events, and routes creator and treasury payouts.
-- Platform configuration
-  - Maintains the allowed-asset list, treasury recipient, and capped platform fee used by `PurchaseManager`.
+  - Accepts payment in XLM or approved Stellar assets, records entitlement state, and emits purchase events.
+- `PayoutConfig` logic
+  - Supports creator payouts, treasury fees, and later scholarship or referral splits.
 
 Content files stay off-chain. The chain is used for settlement, rights registration, and access verification.
-
-The detailed Soroban storage model, event contract, payout rules, and migration stance are documented in [`docs/soroban-contract-architecture.md`](docs/soroban-contract-architecture.md).
 
 ## Installation
 
@@ -167,7 +180,6 @@ Examples below use `npm`, but `pnpm` or `bun` can also be used.
 
 - Node.js 20+
 - npm 10+ or pnpm
-- Rust toolchain with `cargo` and `wasm32v1-none` target for Soroban contract development
 - MongoDB 7+ or Docker
 - Pinata credentials for file uploads
 - A wallet for testing current prototype flows
@@ -203,20 +215,13 @@ Run the Solidity prototype tests:
 npm run test:contracts
 ```
 
-Run the Soroban `MaterialRegistry` tests:
-
-```bash
-cd soroban
-cargo test
-```
-
 Run backend validation, rate-limit, and indexer tests:
 
 ```bash
 npm run test:backend
 ```
 
-Run the current Node-side local baseline:
+Run the full local test baseline:
 
 ```bash
 npm test
@@ -251,10 +256,23 @@ See [`.env.example`](.env.example) for the canonical template.
 | `NEXT_PUBLIC_STELLAR_NETWORK` | Planned | Target Stellar network for Soroban milestone |
 | `NEXT_PUBLIC_STELLAR_RPC_URL` | Planned | Soroban RPC endpoint |
 | `NEXT_PUBLIC_HORIZON_URL` | Planned | Horizon endpoint for indexing and account lookups |
-| `NEXT_PUBLIC_MATERIAL_REGISTRY_CONTRACT_ID` | Planned | Contract ID for registry reads and material lifecycle events |
-| `NEXT_PUBLIC_PURCHASE_MANAGER_CONTRACT_ID` | Planned | Contract ID for purchase, entitlement, and payout events |
-| `NEXT_PUBLIC_SOROBAN_CONTRACT_ID` | Legacy fallback | Single-contract fallback used until the two-contract env split is fully adopted |
-| `NEXT_PUBLIC_ACCEPTED_ASSET` | Planned | Default display asset such as `XLM` or `USDC`; actual accepted assets are material-level quotes intersected with the platform allowlist |
+| `NEXT_PUBLIC_SOROBAN_CONTRACT_ID` | Planned | Contract ID for entitlement and payment logic |
+| `NEXT_PUBLIC_ACCEPTED_ASSET` | Planned | Default accepted payment asset such as `XLM` or `USDC` |
+
+## Deployment Guardrails
+
+- Production builds and startups validate required environment values before the app serves traffic.
+- Placeholder secrets such as `replace-with-a-long-random-string` fail validation in production.
+- CI runs dependency audits and a secret/placeholder scan before merge.
+- Security headers are set centrally in `next.config.mjs` for all application routes.
+- Dashboard middleware verifies the signed session token before protected routes render.
+
+### Production vs Local Environment
+
+- Local development may leave some Soroban settings unset while the feature is still gated.
+- Production deployments must provide real `JWT_SECRET`, `MONGODB_URI`, `PINATA_JWT`, `NEXT_PUBLIC_APP_URL`, and `NEXT_PUBLIC_GATEWAY_URL` values.
+- Once Soroban features are enabled, production must also provide valid `NEXT_PUBLIC_STELLAR_RPC_URL`, `NEXT_PUBLIC_HORIZON_URL`, and `NEXT_PUBLIC_SOROBAN_CONTRACT_ID`.
+- Preview and production environments should not use placeholder values for any credential-like setting.
 
 ## Usage
 
@@ -280,8 +298,6 @@ See [`.env.example`](.env.example) for the canonical template.
 - Finalize README, contribution docs, and maintainership materials
 - Clean up prototype flows and remove stale chain-specific UI references
 - Model the Soroban contract interfaces for registry and entitlement logic
-
-The canonical architecture note for that milestone lives in [`docs/soroban-contract-architecture.md`](docs/soroban-contract-architecture.md).
 
 ### Next milestone
 

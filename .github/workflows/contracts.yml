@@ -3,7 +3,7 @@ name: Contracts CI
 on:
   pull_request:
     paths:
-      - "contracts/**"
+      - "archive/legacy-evm/**"
       - "soroban/**"
       - "package.json"
       - "package-lock.json"
@@ -13,7 +13,7 @@ on:
       - main
       - develop
     paths:
-      - "contracts/**"
+      - "archive/legacy-evm/**"
       - "soroban/**"
       - "package.json"
       - "package-lock.json"
@@ -41,7 +41,11 @@ jobs:
 
       - name: Run Soroban tests
         working-directory: soroban
-        run: cargo test
+        run: cargo test --workspace --all-targets
+
+      - name: Check Soroban formatting
+        working-directory: soroban
+        run: cargo fmt --all -- --check
 
       - name: Build Soroban contract WASM
         working-directory: soroban
@@ -60,8 +64,8 @@ jobs:
           echo "Deployment validation passed: Contract IDs are set."
 
   solidity:
-    name: Solidity Prototype Checks
-    if: ${{ hashFiles('contracts/**/*.sol') != '' }}
+    name: Archived Solidity Prototype Checks
+    if: ${{ hashFiles('archive/legacy-evm/contracts/**/*.sol') != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -78,16 +82,16 @@ jobs:
         run: npm install
 
       - name: Check contract formatting
-        run: npx --yes prettier@3.6.2 --check "contracts/**/*.sol"
+        run: npx --yes prettier@3.6.2 --check "archive/legacy-evm/contracts/**/*.sol"
 
       - name: Run Solidity lint
-        run: npx --yes solhint@5.0.3 "contracts/**/*.sol"
+        run: npx --yes solhint@5.0.3 "archive/legacy-evm/contracts/**/*.sol"
 
       - name: Compile Solidity contracts
         shell: bash
         run: |
           shopt -s globstar nullglob
-          files=(contracts/**/*.sol)
+          files=(archive/legacy-evm/contracts/**/*.sol)
           if [ "${#files[@]}" -eq 0 ]; then
             echo "No Solidity contracts found."
             exit 0

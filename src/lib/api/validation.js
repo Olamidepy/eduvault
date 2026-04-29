@@ -66,9 +66,9 @@ export function validateProfilePayload(body) {
 
 export function validateMaterialPayload(body) {
   const title = sanitizeString(body?.title, { maxLength: 160 });
-  const fileUrl = sanitizeString(body?.fileUrl, { maxLength: 2048 });
-  if (!title || !fileUrl) {
-    throw new ValidationError("Missing required material fields");
+  const storageKey = sanitizeString(body?.storageKey || body?.fileUrl, { maxLength: 2048 });
+  if (!title || !storageKey) {
+    throw new ValidationError("Missing required material fields (title or storageKey)");
   }
 
   const price = Number(body?.price ?? 0);
@@ -88,7 +88,7 @@ export function validateMaterialPayload(body) {
     usageRights: sanitizeString(body?.usageRights, { maxLength: 1000 }),
     visibility,
     thumbnailUrl: sanitizeString(body?.thumbnailUrl, { maxLength: 2048 }) || null,
-    fileUrl,
+    storageKey,
   };
 }
 

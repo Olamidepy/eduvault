@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { ethers } = require("hardhat");
 
-describe("EduVault", function () {
+describe("EduVault (archived legacy EVM prototype)", function () {
   async function deployVault() {
     const [creator, buyer, receiver, ...others] = await ethers.getSigners();
     const EduVault = await ethers.getContractFactory("EduVault");
