@@ -34,7 +34,7 @@ EduVault needs to do four things reliably:
 ### Prototype chain layer
 
 - EVM wallet connection via wagmi and RainbowKit
-- legacy ERC-721 proof of concept in `contracts/EduVault.sol`
+- archived ERC-721 proof of concept in `archive/legacy-evm/contracts/EduVault.sol`
 
 ## 3. Target Stellar-Native Architecture
 
