@@ -45,7 +45,7 @@ export default function Sidebar() {
 	const isActive = (href) => pathname === href;
 
 	return (
-		<aside className="w-64 bg-white border-r border-gray-200 p-6 flex flex-col fixed h-full">
+		<aside className="w-64 bg-surface-strong border-r border-border-subtle p-6 flex flex-col fixed h-full">
 			<div className="text-2xl font-bold mb-8">EduVault</div>
 
 			{/* Main Menu */}
@@ -57,7 +57,7 @@ export default function Sidebar() {
 						className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
 							isActive(item.href)
 								? "bg-blue-50 text-blue-600 border-l-4 border-blue-600 font-semibold"
-								: "text-gray-700 hover:bg-gray-100"
+								: "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
 						}`}
 					>
 						{item.icon}
@@ -68,7 +68,7 @@ export default function Sidebar() {
 
 			{/* Profile Menu */}
 			<div className="mb-8">
-				<h3 className="text-sm font-semibold text-gray-500 mb-3 px-4">
+				<h3 className="text-sm font-semibold text-muted-foreground mb-3 px-4">
 					PROFILE
 				</h3>
 				<nav className="space-y-1">
@@ -79,7 +79,7 @@ export default function Sidebar() {
 							className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
 								isActive(item.href)
 									? "bg-blue-50 text-blue-600 border-l-4 border-blue-600 font-semibold"
-									: "text-gray-700 hover:bg-gray-100"
+									: "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
 							}`}
 						>
 							{item.icon}
