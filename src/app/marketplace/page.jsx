@@ -1,258 +1,304 @@
+// Marketplace page: supports search, filters, sorting, pagination, and empty/loading/error states. State is reflected in the URL for shareability.
+
 "use client";
 
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { FaHeart } from "react-icons/fa";
+import { FaHeart, FaSearch, FaFilter, FaStar, FaFilePdf, FaFileWord, FaFilePowerpoint, FaRegClock } from "react-icons/fa";
 import { motion } from "framer-motion";
 import Navbar from "@/components/Navbar";
-import {
-  marketplaceCategories,
-  marketplaceListings,
-  getPreviewCounts,
-} from "@/lib/marketplace/listings";
+import { useRouter } from "next/navigation";
+import { useMarketplaceMaterials } from "@/hooks/api/useMaterials";
 
-function ListingCover({ listing }) {
-  const label = listing.coverImage ? "Creator preview cover" : "No cover provided yet";
+export const dynamic = "force-dynamic";
 
-  return (
-    <div className="relative w-full h-44 bg-gradient-to-br from-amber-50 via-white to-sky-50 overflow-hidden">
-      {listing.coverImage ? (
-        <Image
-          src={listing.coverImage}
-          alt={listing.title}
-          fill
-          className="object-cover"
-        />
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
-          <div className="max-w-[12rem]">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-gray-500 shadow-sm">
-              <span className="text-xl">Preview</span>
-            </div>
-            <p className="text-xs font-medium uppercase tracking-[0.2em] text-gray-400">
-              Cover not provided
-            </p>
-          </div>
-        </div>
-      )}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/45 to-transparent p-4">
-        <div className="inline-flex items-center rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-700">
-          {label}
-        </div>
-      </div>
-    </div>
-  );
+const SUBJECTS = ["Math", "Science", "Law", "Technology", "Business", "Medicine", "Arts"];
+
+function getPreviewImage(material) {
+	return material.coverImageUrl || material.thumbnailUrl || material.image || "/images/image1.jpg";
 }
 
-function PreviewSignal({ label, value }) {
-  return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-      <div className="text-[11px] uppercase tracking-[0.18em] text-gray-400">
-        {label}
-      </div>
-      <div className="mt-1 text-xs font-medium text-gray-700 line-clamp-2">
-        {value}
-      </div>
-    </div>
-  );
+function getPreviewCounts(material) {
+	return {
+		outcomes: Array.isArray(material.learningOutcomes) ? material.learningOutcomes.length : 0,
+		sections: Array.isArray(material.tableOfContents) ? material.tableOfContents.length : 0,
+		notes: Array.isArray(material.sampleNotes) ? material.sampleNotes.length : 0,
+	};
 }
 
 export default function MarketPage() {
-  const categories = marketplaceCategories;
-  const materials = marketplaceListings;
+	const router = useRouter();
+	const [searchQuery, setSearchQuery] = useState("");
+	const [activeSubject, setActiveSubject] = useState("All");
+	const [sortBy, setSortBy] = useState("Popular");
+	const [minPrice, setMinPrice] = useState("");
+	const [maxPrice, setMaxPrice] = useState("");
+	const [creator, setCreator] = useState("");
+	const [usageRights, setUsageRights] = useState("");
+	const [currentPage, setCurrentPage] = useState(1);
+	const [hydrated, setHydrated] = useState(false);
+	const itemsPerPage = 12;
 
-  return (
-    <>
-      <Navbar />
+	// Hydrate initial filter state from the URL on the client.
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		setSearchQuery(params.get("search") || "");
+		setActiveSubject(params.get("subject") || "All");
+		setSortBy(params.get("sortBy") || "Popular");
+		setMinPrice(params.get("minPrice") || "");
+		setMaxPrice(params.get("maxPrice") || "");
+		setCreator(params.get("creator") || "");
+		setUsageRights(params.get("usageRights") || "");
+		setCurrentPage(Number(params.get("page") || 1));
+		setHydrated(true);
+	}, []);
 
-      <div
-        className="absolute inset-0 bg-[linear-gradient(to_right,#f2ede8_1px,transparent_1px),linear-gradient(to_bottom,#f2ede8_1px,transparent_1px)] bg-[size:40px_40px] opacity-70 pointer-events-none -z-10"
-        aria-hidden="true"
-      />
+	// Sync state to URL
+	useEffect(() => {
+		if (!hydrated) return;
+		const params = new URLSearchParams();
+		if (searchQuery) params.set("search", searchQuery);
+		if (activeSubject && activeSubject !== "All") params.set("subject", activeSubject);
+		if (sortBy && sortBy !== "Popular") params.set("sortBy", sortBy);
+		if (minPrice) params.set("minPrice", minPrice);
+		if (maxPrice) params.set("maxPrice", maxPrice);
+		if (creator) params.set("creator", creator);
+		if (usageRights) params.set("usageRights", usageRights);
+		if (currentPage > 1) params.set("page", currentPage);
+		router.replace(`/marketplace?${params.toString()}`);
+	}, [hydrated, searchQuery, activeSubject, sortBy, minPrice, maxPrice, creator, usageRights, currentPage, router]);
 
-      <section className="flex min-h-screen bg-[#fffaf6]">
-        <aside className="hidden lg:block w-64 bg-white border-r border-gray-200 px-6 py-10 overflow-y-auto">
-          <h3 className="text-sm font-semibold text-gray-700 mb-6">Categories</h3>
-          <ul className="space-y-3 text-sm text-gray-600">
-            {categories.map((category) => (
-              <li
-                key={category}
-                className="cursor-pointer hover:text-blue-600 transition-all"
-              >
-                {category}
-              </li>
-            ))}
-          </ul>
-        </aside>
+	const { data, isLoading, isError, error } = useMarketplaceMaterials({
+		search: searchQuery,
+		subject: activeSubject !== "All" ? activeSubject : undefined,
+		sortBy: sortBy === "Popular" ? "popular" : sortBy === "Price: Low to High" ? "price_asc" : sortBy === "Price: High to Low" ? "price_desc" : undefined,
+		minPrice: minPrice || undefined,
+		maxPrice: maxPrice || undefined,
+		creator: creator || undefined,
+		usageRights: usageRights || undefined,
+		page: currentPage,
+		pageSize: itemsPerPage,
+	});
 
-        <main className="flex-1 px-6 md:px-10 py-10 overflow-y-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="bg-gradient-to-br from-yellow-100 to-orange-100 rounded-2xl p-8 mb-10 flex flex-col md:flex-row justify-between items-center gap-6"
-          >
-            <div className="max-w-lg">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-800/80 mb-3">
-                Creator preview fields
-              </p>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
-                Discover More Study Materials
-              </h1>
-              <p className="text-gray-700 text-sm mb-4">
-                Buyers can compare cover images, summaries, learning outcomes, and
-                table of contents before checkout.
-              </p>
-              <button className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-md text-sm font-semibold transition-all">
-                Become a Creator
-              </button>
-            </div>
+	const materials = data?.items || [];
+	const totalPages = data?.totalPages || 1;
 
-            <div className="w-40 h-40 mt-2 md:mt-0 flex items-center justify-center">
-              <Image
-                src="/images/celo.png"
-                alt="Celo Token"
-                width={144}
-                height={144}
-                className="object-contain"
-              />
-            </div>
-          </motion.div>
+	const getFileIcon = (type) => {
+		switch(type) {
+			case 'pdf': return <FaFilePdf className="text-red-500" />;
+			case 'doc': return <FaFileWord className="text-blue-500" />;
+			case 'ppt': return <FaFilePowerpoint className="text-orange-500" />;
+			default: return <FaFilePdf className="text-gray-500" />;
+		}
+	};
 
-          <div className="flex flex-wrap items-center justify-between mb-8 gap-4">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2 text-gray-600 text-sm flex-wrap">
-                <span className="font-medium">Filters:</span>
-                <select className="border border-gray-300 bg-white rounded-md px-3 py-1 text-sm focus:ring-1 focus:ring-blue-300">
-                  <option>Category: All</option>
-                  <option>Social Sciences</option>
-                  <option>Engineering</option>
-                  <option>Pharmacy</option>
-                </select>
-                <select className="border border-gray-300 bg-white rounded-md px-3 py-1 text-sm focus:ring-1 focus:ring-blue-300">
-                  <option>Price Range</option>
-                </select>
-                <select className="border border-gray-300 bg-white rounded-md px-3 py-1 text-sm focus:ring-1 focus:ring-blue-300">
-                  <option>Latest Releases</option>
-                  <option>Most Downloaded</option>
-                </select>
-              </div>
-            </div>
+	const resetFilters = () => {
+		setSearchQuery("");
+		setActiveSubject("All");
+		setSortBy("Popular");
+		setMinPrice("");
+		setMaxPrice("");
+		setCreator("");
+		setUsageRights("");
+		setCurrentPage(1);
+	};
 
-            <div className="text-sm text-gray-600">
-              Sort by:{" "}
-              <select className="border border-gray-300 bg-white rounded-md px-3 py-1 text-sm ml-1 focus:ring-1 focus:ring-blue-300">
-                <option>Most Popular</option>
-                <option>Newest</option>
-              </select>
-            </div>
-          </div>
+	return (
+		<>
+			<Navbar />
 
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6 }}
-            className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-          >
-            {materials.map((material) => {
-              const previewCounts = getPreviewCounts(material);
+			<div className="absolute inset-0 bg-[linear-gradient(to_right,#f2ede8_1px,transparent_1px),linear-gradient(to_bottom,#f2ede8_1px,transparent_1px)] bg-size-[40px_40px] opacity-70 pointer-events-none -z-1" aria-hidden="true"></div>
 
-              return (
-                <Link
-                  href={`/marketplace/${material.id}`}
-                  key={material.id}
-                  className="group bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 block"
-                >
-                  <ListingCover listing={material} />
+			<section className="flex flex-col lg:flex-row min-h-screen bg-[#fffaf6] relative z-0">
+				<div className="lg:hidden w-full overflow-x-auto bg-white border-b border-gray-200 px-4 py-3 hide-scrollbar flex gap-2">
+					{["All", ...SUBJECTS].map((subject) => (
+						<button
+							key={subject}
+							onClick={() => {
+								setActiveSubject(subject);
+								setCurrentPage(1);
+							}}
+							className={`whitespace-nowrap px-4 py-1.5 rounded-full text-sm transition-all ${activeSubject === subject ? "bg-blue-600 text-white font-medium shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+						>
+							{subject}
+						</button>
+					))}
+				</div>
 
-                  <div className="p-4 space-y-4">
-                    <div>
-                      <div className="flex items-start justify-between gap-3">
-                        <h3 className="text-sm font-semibold text-gray-900 line-clamp-2">
-                          {material.title}
-                        </h3>
-                        <span className="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">
-                          {material.previewType}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        by {material.author}
-                      </p>
-                    </div>
+				<aside className="hidden lg:block w-72 bg-white border-r border-gray-200 px-6 py-10 sticky top-0 h-screen overflow-y-auto">
+					<h3 className="text-sm font-bold text-gray-900 mb-6 uppercase tracking-wider">Subjects</h3>
+					<ul className="space-y-1">
+						{["All", ...SUBJECTS].map((subject) => (
+							<li key={subject}>
+								<button
+									onClick={() => {
+										setActiveSubject(subject);
+										setCurrentPage(1);
+									}}
+									className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${activeSubject === subject ? "bg-blue-50 text-blue-700 font-semibold" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"}`}
+								>
+									{subject}
+								</button>
+							</li>
+						))}
+					</ul>
+				</aside>
 
-                    <p className="text-xs text-gray-600 line-clamp-3 min-h-[3rem]">
-                      {material.shortSummary || "Creator preview not provided yet."}
-                    </p>
+				<main className="flex-1 px-4 md:px-8 py-8 md:py-10 overflow-x-hidden">
+					<motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="bg-linear-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-6 mb-8 flex flex-col md:flex-row justify-between items-center relative overflow-hidden">
+						<div className="relative z-10 w-full md:w-2/3">
+							<h1 className="text-xl md:text-2xl font-bold text-gray-900 mb-2">Academic Marketplace</h1>
+							<p className="text-gray-600 text-sm mb-4">Search by title, description, and author. Then narrow results by subject and price sorting.</p>
+							<button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-sm">Share Your Notes</button>
+						</div>
+					</motion.div>
 
-                    <div className="grid grid-cols-3 gap-2">
-                      <PreviewSignal
-                        label="Outcomes"
-                        value={
-                          previewCounts.outcomes
-                            ? `${previewCounts.outcomes} listed`
-                            : "Not shared"
-                        }
-                      />
-                      <PreviewSignal
-                        label="Sections"
-                        value={
-                          previewCounts.sections
-                            ? `${previewCounts.sections} items`
-                            : "Not shared"
-                        }
-                      />
-                      <PreviewSignal
-                        label="Sample notes"
-                        value={
-                          previewCounts.notes ? `${previewCounts.notes} snippets` : "Not shared"
-                        }
-                      />
-                    </div>
+					<div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-8 flex flex-col md:flex-row gap-4 items-center justify-between relative z-10">
+						<div className="relative w-full md:max-w-md">
+							<FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+							<input
+								type="text"
+								placeholder="Search title, description, or author..."
+								value={searchQuery}
+								onChange={(e) => {
+									setSearchQuery(e.target.value);
+									setCurrentPage(1);
+								}}
+								className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+							/>
+						</div>
 
-                    <div className="flex justify-between items-center text-xs text-gray-500">
-                      <div className="flex items-center gap-1">
-                        <FaHeart className="text-pink-500" />
-                        <span>{material.likes} Likes</span>
-                      </div>
-                      <span>Price</span>
-                    </div>
+						<div className="flex w-full md:w-auto items-center gap-3 overflow-x-auto hide-scrollbar">
+							<div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 shrink-0">
+								<FaFilter className="text-gray-400 mr-2 text-xs" />
+								<select
+									value={activeSubject}
+									onChange={(e) => {
+										setActiveSubject(e.target.value);
+										setCurrentPage(1);
+									}}
+									className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
+								>
+									<option value="All">All Subjects</option>
+									{SUBJECTS.map((subject) => (
+										<option key={subject} value={subject}>{subject}</option>
+									))}
+								</select>
+							</div>
 
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-semibold text-gray-800">
-                        {material.price}
-                      </span>
-                      <span className="text-xs text-gray-400">CELO</span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </motion.div>
+							{/* Price Range Filter */}
+							<div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 shrink-0 gap-2">
+								<span className="text-gray-500 text-xs">Price:</span>
+								<input type="number" min="0" placeholder="Min" value={minPrice} onChange={e => setMinPrice(e.target.value)} className="w-14 px-1 py-0.5 rounded border border-gray-200 text-xs" />
+								<span className="text-gray-400">-</span>
+								<input type="number" min="0" placeholder="Max" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} className="w-14 px-1 py-0.5 rounded border border-gray-200 text-xs" />
+							</div>
 
-          <div className="flex items-center justify-between mt-12 text-sm text-gray-600">
-            <button className="border border-gray-300 rounded-md px-3 py-1 hover:bg-gray-100">
-              Previous
-            </button>
-            <div className="flex items-center gap-2">
-              {[1, 2, 3, 4, 5].map((num) => (
-                <button
-                  key={num}
-                  className={`w-8 h-8 flex items-center justify-center rounded-md ${
-                    num === 1
-                      ? "bg-blue-600 text-white"
-                      : "bg-white border border-gray-300 hover:bg-gray-100"
-                  }`}
-                >
-                  {num}
-                </button>
-              ))}
-            </div>
-            <button className="border border-gray-300 rounded-md px-3 py-1 hover:bg-gray-100">
-              Next
-            </button>
-          </div>
-        </main>
-      </section>
-    </>
-  );
+							{/* Creator Filter */}
+							<div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 shrink-0 gap-2">
+								<span className="text-gray-500 text-xs">Creator:</span>
+								<input type="text" placeholder="Name" value={creator} onChange={e => setCreator(e.target.value)} className="w-20 px-1 py-0.5 rounded border border-gray-200 text-xs" />
+							</div>
+
+							{/* Usage Rights Filter */}
+							<div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 shrink-0 gap-2">
+								<span className="text-gray-500 text-xs">Rights:</span>
+								<input type="text" placeholder="e.g. CC-BY" value={usageRights} onChange={e => setUsageRights(e.target.value)} className="w-20 px-1 py-0.5 rounded border border-gray-200 text-xs" />
+							</div>
+
+							<div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 shrink-0">
+								<span className="text-gray-500 text-sm mr-2">Sort:</span>
+								<select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-transparent text-sm font-medium text-gray-800 focus:outline-none cursor-pointer">
+									<option>Popular</option>
+									<option>Highest Rated</option>
+									<option>Price: Low to High</option>
+									<option>Price: High to Low</option>
+								</select>
+							</div>
+						</div>
+					</div>
+
+					{isLoading ? (
+						<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+							{Array.from({ length: itemsPerPage }).map((_, i) => (
+								<div key={i} className="bg-white rounded-xl border border-gray-200 p-5 animate-pulse h-56" />
+							))}
+						</div>
+					) : isError ? (
+						<div className="bg-white rounded-2xl border border-gray-200 py-20 px-6 text-center shadow-sm">
+							<h3 className="text-lg font-bold text-red-600 mb-2">Error loading materials</h3>
+							<p className="text-gray-500 mb-4">{error?.message || "Something went wrong."}</p>
+							<button onClick={() => window.location.reload()} className="text-blue-600 font-medium text-sm hover:underline">Retry</button>
+						</div>
+					) : materials.length === 0 ? (
+						<div className="bg-white rounded-2xl border border-gray-200 py-20 px-6 text-center shadow-sm">
+							<div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4"><FaSearch className="text-gray-400 text-2xl" /></div>
+							<h3 className="text-lg font-bold text-gray-900 mb-2">No materials found</h3>
+							<button onClick={resetFilters} className="text-blue-600 font-medium text-sm hover:underline">Clear all filters</button>
+						</div>
+					) : (
+						<>
+							<div className="flex justify-between items-end mb-4 px-1">
+								<h2 className="text-lg font-bold text-gray-800">{activeSubject === "All" ? "All Materials" : `${activeSubject} Materials`}</h2>
+								<span className="text-sm text-gray-500">{data?.total || 0} results</span>
+							</div>
+							<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 relative z-10">
+								{materials.map((material) => (
+									<Link href={`/marketplace/${material._id || material.id}`} key={material._id || material.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 flex flex-col group">
+										<div className="relative w-full h-28 bg-gray-100 overflow-hidden">
+											<Image src={getPreviewImage(material)} alt={material.title} fill className="object-cover group-hover:scale-105 transition-transform duration-500" />
+										</div>
+										<div className="p-4 flex-1 flex flex-col">
+											<h3 className="text-sm font-bold text-gray-900 mb-1 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors">{material.title}</h3>
+											<p className="text-xs text-gray-500 mb-1">by <span className="font-medium text-gray-700">{material.author}</span></p>
+											<p className="text-xs text-gray-500 mb-3 line-clamp-2">
+												{material.shortSummary || material.description || "Creator preview not shared yet."}
+											</p>
+											<div className="mb-3 grid grid-cols-3 gap-2">
+												<div className="rounded-lg border border-gray-100 bg-gray-50 px-2 py-2">
+													<p className="text-[10px] uppercase tracking-wide text-gray-400">Cover</p>
+													<p className="mt-1 text-[11px] font-semibold text-gray-700">
+														{material.coverImageUrl || material.thumbnailUrl || material.image ? "Available" : "Missing"}
+													</p>
+												</div>
+												<div className="rounded-lg border border-gray-100 bg-gray-50 px-2 py-2">
+													<p className="text-[10px] uppercase tracking-wide text-gray-400">Outcomes</p>
+													<p className="mt-1 text-[11px] font-semibold text-gray-700">
+														{getPreviewCounts(material).outcomes || "None"}
+													</p>
+												</div>
+												<div className="rounded-lg border border-gray-100 bg-gray-50 px-2 py-2">
+													<p className="text-[10px] uppercase tracking-wide text-gray-400">TOC</p>
+													<p className="mt-1 text-[11px] font-semibold text-gray-700">
+														{getPreviewCounts(material).sections || "None"}
+													</p>
+												</div>
+											</div>
+											<div className="mt-auto pt-3 border-t border-gray-100 flex justify-between items-center">
+												<div className="flex items-center text-xs text-gray-500 gap-3">
+													<span className="flex items-center gap-1">{/* File icon logic can be improved if fileType is available */}<FaFilePdf className="text-red-500" /> <span className="uppercase">PDF</span></span>
+													<div className="flex items-center gap-1"><FaHeart className="text-gray-400" /><span>{material.likes || 0}</span></div>
+												</div>
+												<div className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md text-sm font-bold shadow-sm border border-blue-100">{material.price} <span className="text-[10px] font-medium text-blue-500">XLM</span></div>
+											</div>
+											<div className="mt-2 flex justify-between text-xs text-gray-500"><span>{material.subject}</span><span><FaStar className="inline text-yellow-500" /> {material.rating || 4.8}</span></div>
+										</div>
+									</Link>
+								))}
+							</motion.div>
+							{/* Pagination */}
+							{totalPages > 1 && (
+								<div className="flex justify-center mt-8 gap-2">
+									{Array.from({ length: totalPages }).map((_, i) => (
+										<button key={i} onClick={() => setCurrentPage(i + 1)} className={`px-3 py-1.5 rounded ${currentPage === i + 1 ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>{i + 1}</button>
+									))}
+								</div>
+							)}
+						</>
+					)}
+				</main>
+			</section>
+		</>
+	);
 }

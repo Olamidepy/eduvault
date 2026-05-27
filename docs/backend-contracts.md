@@ -2,6 +2,8 @@
 
 This document defines the canonical backend shapes for EduVault contributors. MongoDB keeps application metadata and query models, while Soroban and Stellar events remain the source of truth for payment and entitlement state once the Stellar milestone is active.
 
+The canonical Soroban storage boundary, normalized event names, and entitlement query rules are defined in [`docs/soroban-contract-architecture.md`](soroban-contract-architecture.md).
+
 ## Collections
 
 ### `users`
@@ -32,7 +34,7 @@ Authoritative off-chain listing metadata and derived chain linkage.
 Required fields:
 
 - `userAddress`: creator wallet address.
-- `title`, `fileUrl`, `visibility`, `price`.
+- `title`, `storageKey` (or legacy `fileUrl`), `visibility`, `price`.
 - `createdAt` / `updatedAt`.
 
 Optional fields:
@@ -136,7 +138,8 @@ Response:
 Request:
 
 - `title`: required string.
-- `fileUrl`: required string.
+- `storageKey`: required string for new uploads.
+- `fileUrl`: accepted as a legacy alias for `storageKey`.
 - `price`: optional non-negative number.
 - `visibility`: `private`, `public`, or `unlisted`.
 - `description`, `usageRights`, `thumbnailUrl`: optional strings.
