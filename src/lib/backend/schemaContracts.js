@@ -5,6 +5,7 @@ export const COLLECTIONS = {
   entitlementCache: "entitlement_cache",
   syncState: "sync_state",
   syncEvents: "sync_events",
+  deadLetterEvents: "dead_letter_events",
 };
 
 export const REQUIRED_INDEXES = {
@@ -28,6 +29,11 @@ export const REQUIRED_INDEXES = {
   ],
   sync_state: [{ keys: { source: 1 }, options: { unique: true } }],
   sync_events: [{ keys: { _id: 1 }, options: { unique: true } }],
+  dead_letter_events: [
+    { keys: { _id: 1 }, options: { unique: true } },
+    { keys: { status: 1 } },
+    { keys: { retryCount: 1 } },
+  ],
 };
 
 export function applyTimestamps(record, now = new Date()) {
