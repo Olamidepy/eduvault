@@ -63,6 +63,7 @@ pub struct MaterialRecord {
     pub metadata_uri: String,
     pub metadata_hash: BytesN<32>,
     pub rights_hash: BytesN<32>,
+    pub paused: bool,
     pub status: MaterialStatus,
     pub quotes: Vec<AssetQuote>,
     pub payout_shares: Vec<PayoutShare>,
@@ -138,6 +139,17 @@ pub struct MaterialStatusUpdatedEvent {
     pub status: MaterialStatus,
 }
 
+#[contractevent(topics = ["material", "status_changed"], data_format = "vec")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaterialStatusChangedEvent {
+    #[topic]
+    pub material_id: BytesN<32>,
+    #[topic]
+    pub creator: Address,
+    pub paused: bool,
+    pub status: MaterialStatus,
+}
+
 /// Emitted when the upgrade-admin updates the approved-asset allowlist.
 #[contractevent(topics = ["asset", "policy_updated"], data_format = "vec")]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -185,6 +197,7 @@ impl MaterialRegistry {
             metadata_uri: metadata_uri.clone(),
             metadata_hash: metadata_hash.clone(),
             rights_hash: rights_hash.clone(),
+            paused: false,
             status: MaterialStatus::Active,
             quotes: quotes.clone(),
             payout_shares: payout_shares.clone(),
