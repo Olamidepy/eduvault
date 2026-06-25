@@ -1,8 +1,7 @@
 export const dynamic = "force-dynamic";
 
-import { getDb } from '@/lib/mongodb'
 import { NextResponse } from 'next/server'
-import { getMaterialAccessStatus } from '@/lib/purchases/access'
+import { verifyEntitlement } from '@/lib/entitlement'
 
 export async function GET(req) {
   try {
@@ -17,11 +16,12 @@ export async function GET(req) {
       )
     }
 
-    const db = await getDb()
+    const { hasAccess, source } = await verifyEntitlement(materialId, buyerAddress)
 
-    const access = await getMaterialAccessStatus(db, materialId, buyerAddress)
-
-    return NextResponse.json(access, { status: 200 })
+    return NextResponse.json(
+      { hasAccess, source },
+      { status: 200 }
+    )
   } catch (error) {
     console.error('Entitlement Check Error:', error)
     return NextResponse.json(

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { auditLog } from "@/lib/api/audit";
 import { withApiHardening } from "@/lib/api/hardening";
 import { parsePagination } from "@/lib/api/validation";
+import { buildMarketplaceDiscoveryQuery, buildMarketplaceSort } from "@/lib/backend/marketplaceDiscovery";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 
@@ -12,8 +13,15 @@ export const runtime = "nodejs";
 function sanitizeMaterial(doc) {
   if (!doc) return doc;
   const { storageKey, fileUrl, metadataUrl, ...safe } = doc;
+  const averageScore = Number(safe.averageScore ?? safe.rating ?? 0) || 0;
+  const feedbackCount = Number(safe.feedbackCount ?? safe.reviewsCount ?? 0) || 0;
+
   return {
     ...safe,
+    averageScore,
+    rating: averageScore,
+    feedbackCount,
+    reviewsCount: feedbackCount,
     userAddress: safe.userAddress ?? safe.ownerAddress ?? null,
   };
 }
@@ -52,42 +60,8 @@ export async function GET(request) {
     // 2️⃣ Handle list fetch
     const { page, pageSize } = parsePagination(url.searchParams);
 
-    // Filters
-    const query = { visibility: "public" };
-    const search = url.searchParams.get("search");
-    const subject = url.searchParams.get("subject");
-    const category = url.searchParams.get("category");
-    const level = url.searchParams.get("level");
-    const minPrice = url.searchParams.get("minPrice");
-    const maxPrice = url.searchParams.get("maxPrice");
-    const creator = url.searchParams.get("creator");
-    const usageRights = url.searchParams.get("usageRights");
-
-    if (search) {
-      const regex = new RegExp(search, "i");
-      query.$or = [
-        { title: regex },
-        { description: regex },
-        { author: regex },
-        { subject: regex },
-      ];
-    }
-    if (subject) query.subject = subject;
-    if (category) query.category = category;
-    if (level) query.level = level;
-    if (minPrice) query.price = { ...query.price, $gte: Number(minPrice) };
-    if (maxPrice) query.price = { ...query.price, $lte: Number(maxPrice) };
-    if (creator) query["author"] = creator;
-    if (usageRights) query["usageRights"] = usageRights;
-
-    // Sorting
-    let sort = { createdAt: -1 };
-    const sortBy = url.searchParams.get("sortBy");
-    if (sortBy === "price_asc") sort = { price: 1 };
-    else if (sortBy === "price_desc") sort = { price: -1 };
-    else if (sortBy === "popular") sort = { likes: -1 };
-    else if (sortBy === "newest") sort = { createdAt: -1 };
-    else if (sortBy === "top_rated") sort = { rating: -1 };
+    const query = buildMarketplaceDiscoveryQuery(url.searchParams);
+    const sort = buildMarketplaceSort(url.searchParams.get("sortBy"));
 
     const total = await db.collection("materials").countDocuments(query);
     const items = await db

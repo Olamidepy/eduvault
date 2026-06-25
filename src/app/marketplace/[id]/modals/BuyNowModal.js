@@ -12,7 +12,6 @@ import { useCreatePurchase, useStartAccessRequest } from "@/hooks/api/usePurchas
 import { ACCEPTED_ASSET, getExplorerTxUrl } from "@/lib/config/chain";
 import { TransactionStatus } from "@/lib/transactions/transaction";
 import { useTransactionCenter } from "@/providers/TransactionProvider";
-import ConnectWalletModal from "./ConnectWalletModal";
 
 const SUPPORTED_ASSETS = [
   { code: ACCEPTED_ASSET, issuer: null, label: `Stellar ${ACCEPTED_ASSET}` },
@@ -87,8 +86,6 @@ export default function BuyNowModal({
   const [checkoutError, setCheckoutError] = useState(null);
   const [downloadError, setDownloadError] = useState(null);
   const [isDownloading, setIsDownloading] = useState(false);
-  const { activeTransaction, beginTransaction, markStatus, confirmTransaction, failTransaction, clearTransaction } =
-    useTransactionCenter();
   const { loading: quoteLoading, error: quoteError, quote, refresh } = useQuote(
     materialId,
     selectedAsset,

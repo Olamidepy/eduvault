@@ -3,6 +3,26 @@ import { getMaterialAccessStatus, createPendingAccessRequest } from "../../../..
 export const dynamic = 'force-dynamic';
 
 export async function accessStatus(db, materialId, buyerAddress) {
+  // Check entitlement cache first (fast path) before falling through to
+  // ownership / purchases DB checks in getMaterialAccessStatus.
+  if (db && materialId && buyerAddress) {
+    try {
+      const cached = await db.collection('entitlement_cache').findOne({
+        materialId,
+        buyerAddress: String(buyerAddress).toLowerCase(),
+      });
+      if (cached?.active) {
+        return {
+          status: 'active',
+          hasAccess: true,
+          accessGranted: true,
+          source: cached.source || 'cache',
+        };
+      }
+    } catch {
+      // fall through to default logic
+    }
+  }
   return getMaterialAccessStatus(db, materialId, buyerAddress);
 }
 

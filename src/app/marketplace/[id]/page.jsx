@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { FaHeart, FaCheckCircle, FaClock, FaExclamationTriangle } from "react-icons/fa";
+import ResourceStatusBadge from "@/components/materials/ResourceStatusBadge";
 import { motion } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import BuyNowModal from "./modals/BuyNowModal";
@@ -28,6 +29,15 @@ function getPreviewCounts(material) {
 		sections: Array.isArray(material.tableOfContents) ? material.tableOfContents.length : 0,
 		notes: Array.isArray(material.sampleNotes) ? material.sampleNotes.length : 0,
 	};
+}
+
+function getAverageScore(material) {
+	const score = Number(material.averageScore ?? material.rating);
+	return Number.isFinite(score) && score > 0 ? score.toFixed(1) : "New";
+}
+
+function getFeedbackCount(material) {
+	return Number(material.feedbackCount ?? material.reviewsCount ?? 0) || 0;
 }
 
 function PreviewBlock({ title, emptyLabel, items }) {
@@ -225,6 +235,7 @@ export default function MaterialDetailsPage() {
 									<h1 className="text-2xl md:text-3xl font-bold text-gray-900">
 										{material.title}
 									</h1>
+									<ResourceStatusBadge material={material} className="mt-1" />
 									<p className="text-gray-600 text-sm leading-relaxed">
 										{material.shortSummary || material.description || "Creator preview not shared yet."}
 									</p>
@@ -262,9 +273,9 @@ export default function MaterialDetailsPage() {
 												{material.price} {material.currency || "XLM"}
 											</span>
 										</div>
-										<span className="text-sm text-yellow-500">⭐ {material.rating || 4.8}</span>
+										<span className="text-sm text-yellow-500">Score {getAverageScore(material)}</span>
 										<span className="text-gray-400 text-sm">
-											({material.reviewsCount || 0} Reviews)
+											({getFeedbackCount(material)} Feedback)
 										</span>
 									</div>
 
@@ -377,6 +388,29 @@ export default function MaterialDetailsPage() {
 								</div>
 							</div>
 
+							<div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm mt-10">
+								<h2 className="text-lg font-semibold text-gray-900 mb-4">Performance Summary</h2>
+								<div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+									<div className="rounded-lg bg-blue-50 p-4">
+										<p className="text-xs text-gray-500 font-medium uppercase">Views</p>
+										<p className="mt-2 text-2xl font-bold text-blue-600">{material.viewCount || 0}</p>
+									</div>
+									<div className="rounded-lg bg-emerald-50 p-4">
+										<p className="text-xs text-gray-500 font-medium uppercase">Saves</p>
+										<p className="mt-2 text-2xl font-bold text-emerald-600">{material.saveCount || 0}</p>
+									</div>
+									<div className="rounded-lg bg-amber-50 p-4">
+										<p className="text-xs text-gray-500 font-medium uppercase">Access Requests</p>
+										<p className="mt-2 text-2xl font-bold text-amber-600">{material.accessCount || 0}</p>
+									</div>
+									<div className="rounded-lg bg-pink-50 p-4">
+										<p className="text-xs text-gray-500 font-medium uppercase">Likes</p>
+										<p className="mt-2 text-2xl font-bold text-pink-600">{material.likes || 0}</p>
+									</div>
+								</div>
+								<p className="text-xs text-gray-500 mt-4">Last updated: {new Date().toLocaleDateString()}</p>
+							</div>
+
 							<div className="grid md:grid-cols-2 gap-6 mt-10">
 								<PreviewBlock
 									title="Learning Outcomes"
@@ -437,8 +471,8 @@ export default function MaterialDetailsPage() {
 							<MaterialReviewPanel
 								materialId={id}
 								initialReviews={material.reviews || material.reviewHistory || []}
-								entitlement={entitlementQuery}
 								currentAddress={address}
+								creatorAddress={material.userAddress || material.ownerAddress || material.creatorAddress || material.author?.walletAddress}
 							/>
 
 							{/* Recommendations */}

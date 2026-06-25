@@ -632,6 +632,144 @@ fn has_entitlement_returns_false_for_new_buyer() {
     assert!(client.get_entitlement(&material_id, &buyer).is_none());
 }
 
+#[test]
+fn has_entitlement_returns_true_after_purchase() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let registry = env.register(MockRegistry, ());
+    let treasury = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let asset = env.register(MockAsset, ());
+
+    let material_id = bytes32(&env, 42);
+    let material = MaterialRecord {
+        material_id: material_id.clone(),
+        creator,
+        paused: false,
+        status: MaterialStatus::Active,
+        quotes: vec![&env, AssetQuote { asset: asset.clone(), amount: 500_000 }],
+        payout_shares: vec![&env, PayoutShare { recipient: Address::generate(&env), share_bps: 10_000 }],
+    };
+    let registry_client = MockRegistryClient::new(&env, &registry);
+    registry_client.set_material(&material_id, &material);
+
+    let (_, client) = install_and_init_contract(&env, &admin, &registry, &treasury, 500);
+    client.set_asset_allowed(&admin, &asset, &AssetKind::Token, &true);
+
+    // Before purchase — no entitlement
+    assert!(!client.has_entitlement(&material_id, &buyer));
+
+    // Execute purchase
+    let purchase_id = client.purchase(&buyer, &material_id, &asset, &500_000);
+
+    // After purchase — entitlement exists and is active
+    assert!(client.has_entitlement(&material_id, &buyer));
+    let entitlement = client.get_entitlement(&material_id, &buyer).unwrap();
+    assert_eq!(entitlement.purchase_id, purchase_id);
+    assert!(entitlement.active);
+    assert_eq!(entitlement.amount, 500_000);
+    assert_eq!(entitlement.material_id, material_id);
+    assert_eq!(entitlement.buyer, buyer);
+}
+
+#[test]
+fn entitlement_is_unique_per_material_buyer_pair() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let registry = env.register(MockRegistry, ());
+    let treasury = Address::generate(&env);
+    let buyer_a = Address::generate(&env);
+    let buyer_b = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let asset = env.register(MockAsset, ());
+
+    let material_1 = bytes32(&env, 10);
+    let material_2 = bytes32(&env, 20);
+
+    let make_material = |id: BytesN<32>| MaterialRecord {
+        material_id: id.clone(),
+        creator: creator.clone(),
+        paused: false,
+        status: MaterialStatus::Active,
+        quotes: vec![&env, AssetQuote { asset: asset.clone(), amount: 100_000 }],
+        payout_shares: vec![&env, PayoutShare { recipient: Address::generate(&env), share_bps: 10_000 }],
+    };
+
+    let registry_client = MockRegistryClient::new(&env, &registry);
+    registry_client.set_material(&material_1, &make_material(material_1.clone()));
+    registry_client.set_material(&material_2, &make_material(material_2.clone()));
+
+    let (_, client) = install_and_init_contract(&env, &admin, &registry, &treasury, 500);
+    client.set_asset_allowed(&admin, &asset, &AssetKind::Token, &true);
+
+    // Buyer A purchases material_1
+    client.purchase(&buyer_a, &material_1, &asset, &100_000);
+
+    // Buyer A has entitlement to material_1
+    assert!(client.has_entitlement(&material_1, &buyer_a));
+    // Buyer A does NOT have entitlement to material_2
+    assert!(!client.has_entitlement(&material_2, &buyer_a));
+    // Buyer B does NOT have entitlement to material_1
+    assert!(!client.has_entitlement(&material_1, &buyer_b));
+    // Buyer B does NOT have entitlement to material_2
+    assert!(!client.has_entitlement(&material_2, &buyer_b));
+
+    // Buyer B purchases material_2
+    client.purchase(&buyer_b, &material_2, &asset, &100_000);
+
+    // Buyer B now has entitlement to material_2
+    assert!(client.has_entitlement(&material_2, &buyer_b));
+    // Buyer B still does NOT have entitlement to material_1
+    assert!(!client.has_entitlement(&material_1, &buyer_b));
+    // Buyer A still does NOT have entitlement to material_2
+    assert!(!client.has_entitlement(&material_2, &buyer_a));
+}
+
+#[test]
+fn entitlement_record_matches_purchase_details() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let registry = env.register(MockRegistry, ());
+    let treasury = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let asset = env.register(MockAsset, ());
+
+    let material_id = bytes32(&env, 7);
+    let material = MaterialRecord {
+        material_id: material_id.clone(),
+        creator,
+        paused: false,
+        status: MaterialStatus::Active,
+        quotes: vec![&env, AssetQuote { asset: asset.clone(), amount: 2_000_000 }],
+        payout_shares: vec![&env, PayoutShare { recipient: Address::generate(&env), share_bps: 10_000 }],
+    };
+    let registry_client = MockRegistryClient::new(&env, &registry);
+    registry_client.set_material(&material_id, &material);
+
+    let (_, client) = install_and_init_contract(&env, &admin, &registry, &treasury, 500);
+    client.set_asset_allowed(&admin, &asset, &AssetKind::Token, &true);
+
+    let purchase_id = client.purchase(&buyer, &material_id, &asset, &2_000_000);
+    let entitlement = client.get_entitlement(&material_id, &buyer).unwrap();
+
+    // Verify all fields of the entitlement record match the purchase
+    assert_eq!(entitlement.material_id, material_id);
+    assert_eq!(entitlement.buyer, buyer);
+    assert!(entitlement.active);
+    assert_eq!(entitlement.purchase_id, purchase_id);
+    assert_eq!(entitlement.asset, asset);
+    assert_eq!(entitlement.amount, 2_000_000);
+    assert!(entitlement.granted_ledger > 0);
+}
+
 // ============== Event Tests ==============
 
 #[test]

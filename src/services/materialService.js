@@ -10,6 +10,10 @@ export const materialService = {
     return apiClient(`/api/market-materials?id=${id}`);
   },
 
+  getMaterialFeedback: async (id) => {
+    return apiClient(`/api/materials/${id}/feedback`);
+  },
+
   getUserMaterials: async () => {
     return apiClient('/api/materials');
   },
@@ -34,6 +38,13 @@ export const materialService = {
     return apiClient(`/api/materials?id=${id}`, {
       method: 'PUT',
       body: updateData,
+    });
+  },
+
+  submitMaterialFeedback: async (id, feedbackData) => {
+    return apiClient(`/api/materials/${id}/feedback`, {
+      method: 'POST',
+      body: feedbackData,
     });
   },
 
