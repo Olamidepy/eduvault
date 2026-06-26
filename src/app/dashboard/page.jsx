@@ -3,6 +3,8 @@ import EarningsSection from "./components/EarningsSection";
 import TrendingMaterials from "./components/TrendingMaterials";
 import LatestActivity from "./components/LatestActivity";
 import TopCreators from "./components/TopCreators";
+import LearningProgress from "./components/LearningProgress";
+import EducatorActivitySummary from "./components/EducatorActivitySummary";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import jwt from "jsonwebtoken";
@@ -56,6 +58,8 @@ export default async function DashboardPage() {
             {/* Trending + Latest Activity + Top Creators */}
             <div className="grid md:grid-cols-3 gap-8">
                 <div className="md:col-span-2 space-y-8">
+                    {user?.role === "educator" && <EducatorActivitySummary user={user} />}
+                    <LearningProgress />
                     <TrendingMaterials />
                     <LatestActivity />
                 </div>
