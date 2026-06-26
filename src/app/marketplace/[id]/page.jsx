@@ -639,6 +639,7 @@ export default function MaterialDetailsPage() {
 											currentId={id}
 											subject={materialQuery.data.subject}
 											category={materialQuery.data.category}
+											level={materialQuery.data.level}
 											creator={materialQuery.data.author || materialQuery.data.creator}
 										/>
 									</div>
