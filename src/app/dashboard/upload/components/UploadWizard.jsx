@@ -1,13 +1,22 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import { FaCloudUploadAlt, FaCheck, FaArrowRight, FaArrowLeft, FaFileAlt, FaTags, FaDollarSign, FaEye, FaSpinner, FaExternalLinkAlt } from "react-icons/fa";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { FaCloudUploadAlt, FaCheck, FaArrowRight, FaArrowLeft, FaFileAlt, FaTags, FaDollarSign, FaEye, FaExclamationTriangle } from "react-icons/fa";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
 import { abi } from "../../../../../contracts/EduVaultAbi.js";
 import { celoSepolia } from "wagmi/chains";
 import { parseAbiItem } from "viem";
+import { useCreateMaterial, useUploadFile } from "@/hooks/api/useMaterials";
+import TransactionStatusPanel from "@/components/transactions/TransactionStatusPanel";
+import { useTransactionCenter } from "@/providers/TransactionProvider";
+import { TransactionStatus } from "@/lib/transactions/transaction";
+import { isUploadChain, SUPPORTED_CHAINS } from "@/lib/web3/chains";
 
-const contractAddress = "0x3f48520ca0d8d51345b416b5a3e083dac8790f55";
+const contractAddress = process.env.NEXT_PUBLIC_UPLOAD_CONTRACT_ADDRESS ?? "0x3f48520ca0d8d51345b416b5a3e083dac8790f55";
+
 
 const TRANSFER_EVENT = parseAbiItem(
   "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)"
@@ -21,20 +30,31 @@ const STEPS = [
 ];
 
 export default function UploadWizard() {
-  const { address } = useAccount();
+  const { address, chainId } = useAccount();
   const { writeContract, data: txHash, error: writeError, isPending } = useWriteContract();
+  const {
+    activeTransaction,
+    beginTransaction,
+    markStatus,
+    confirmTransaction,
+    failTransaction,
+    clearTransaction,
+  } = useTransactionCenter();
   const {
     isLoading: isWaiting,
     isSuccess: isConfirmed,
     isError: isFailed,
     data: receipt,
   } = useWaitForTransactionReceipt({ hash: txHash });
+  const { switchChainAsync } = useSwitchChain();
 
   const [currentStep, setCurrentStep] = useState(1);
-  
+
   // Form state
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("");
+  const [subject, setSubject] = useState("");
   const [price, setPrice] = useState("");
   const [usageRights, setUsageRights] = useState("Standard License (download only)");
   const [visibility, setVisibility] = useState("public");
@@ -43,6 +63,10 @@ export default function UploadWizard() {
   const [thumbFile, setThumbFile] = useState(null);
   const [thumbPreview, setThumbPreview] = useState(null);
 
+  // Taxonomy state
+  const [categories, setCategories] = useState([]);
+  const [taxonomySubjects, setTaxonomySubjects] = useState([]);
+
   // Workflow state
   const [workflowState, setWorkflowState] = useState("idle"); // idle | uploading | minting | success | failed
   const [error, setError] = useState(null);
@@ -50,6 +74,25 @@ export default function UploadWizard() {
   const [mintResult, setMintResult] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadResult, setUploadResult] = useState(null);
+  const [switchingChain, setSwitchingChain] = useState(false);
+
+  const chainMismatch = address && chainId && !isUploadChain(chainId);
+
+  useEffect(() => {
+    async function loadTaxonomy() {
+      try {
+        const res = await fetch("/api/subjects");
+        if (res.ok) {
+          const data = await res.json();
+          setCategories(data.categories || []);
+          setTaxonomySubjects(data.subjects || []);
+        }
+      } catch {
+        // Non-critical — dropdowns stay empty
+      }
+    }
+    loadTaxonomy();
+  }, []);
 
   const handleDocChange = (e) => {
     const file = e.target.files?.[0];
@@ -130,18 +173,62 @@ export default function UploadWizard() {
     }
   };
 
+  const handleSwitchChain = async () => {
+    setError(null);
+    setSwitchingChain(true);
+    try {
+      await switchChainAsync({ chainId: celoSepolia.id });
+    } catch (err) {
+      if (err.code === "ACTION_REJECTED" || err.message?.includes("User rejected")) {
+        setError("Network switch was rejected. Please switch to Celo Sepolia to publish.");
+        setErrorType("chain");
+      } else if (err.message?.includes("does not support")) {
+        setError("Your wallet does not support switching to Celo Sepolia. Please switch manually.");
+        setErrorType("chain");
+      } else {
+        setError(err.message || "Failed to switch network. Please try manually.");
+        setErrorType("chain");
+      }
+    } finally {
+      setSwitchingChain(false);
+    }
+  };
+
+  const uploadFileMutation = useUploadFile();
+  const createMaterialMutation = useCreateMaterial();
+
   const handleSubmit = async () => {
     setError(null);
     setErrorType(null);
+    beginTransaction({
+      scope: "publish",
+      title: "Publishing material",
+      message: "Prepare the upload and approve the mint in your wallet.",
+    });
 
     if (!address) {
       setError("Please connect your wallet to mint an NFT.");
       setErrorType("wallet");
+      failTransaction(new Error("Please connect your wallet to mint an NFT."), {
+        title: "Wallet required",
+        message: "Connect your wallet before publishing this material.",
+        retryable: true,
+      });
+      return;
+    }
+
+    if (chainMismatch) {
+      setError(`Please switch to ${celoSepolia.name} before publishing. Use the network switch button above.`);
+      setErrorType("chain");
       return;
     }
 
     setWorkflowState("uploading");
     setUploadProgress(0);
+    markStatus(TransactionStatus.Submitting, {
+      title: "Uploading material",
+      message: "Uploading files and preparing the mint request.",
+    });
 
     try {
       // Simulate progress for UX
@@ -159,19 +246,17 @@ export default function UploadWizard() {
       formData.append("usageRights", usageRights);
       formData.append("visibility", visibility);
       formData.append("owner", address);
+      if (category) formData.append("category", category);
+      if (subject) formData.append("subject", subject);
 
-      // 2️⃣ Upload to backend
-      const uploadRes = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const uploadData = await uploadRes.json();
+      // 2️⃣ Upload to backend using shared service
+      const uploadData = await uploadFileMutation.mutateAsync(formData);
 
       clearInterval(progressInterval);
       setUploadProgress(100);
 
-      if (!uploadRes.ok || !uploadData?.metadata) {
-        throw new Error(uploadData?.error || "File upload failed");
+      if (!uploadData?.metadata) {
+        throw new Error("File upload failed: No metadata returned");
       }
 
       setUploadResult(uploadData);
@@ -179,6 +264,10 @@ export default function UploadWizard() {
 
       // 3️⃣ Mint NFT
       setWorkflowState("minting");
+      markStatus(TransactionStatus.Signing, {
+        title: "Approve mint",
+        message: "Open your wallet and approve the mint transaction.",
+      });
       writeContract({
         address: contractAddress,
         abi,
@@ -203,8 +292,14 @@ export default function UploadWizard() {
       setError(friendlyError);
       setErrorType("upload");
       setWorkflowState("failed");
+      failTransaction(err instanceof Error ? err : new Error(String(err)), {
+        title: "Publish failed",
+        message: err?.message || "Upload failed. Please try again.",
+        retryable: true,
+      });
     }
   };
+
 
   // Handle write errors
   useEffect(() => {
@@ -220,8 +315,23 @@ export default function UploadWizard() {
         setErrorType("chain");
       }
       setWorkflowState("failed");
+      failTransaction(writeError instanceof Error ? writeError : new Error(String(writeError)), {
+        title: "Publish failed",
+        message: writeError?.message || "Transaction failed. Please try again.",
+        retryable: true,
+      });
     }
-  }, [writeError]);
+  }, [failTransaction, writeError]);
+
+  useEffect(() => {
+    if (txHash && !isConfirmed) {
+      markStatus(TransactionStatus.PendingConfirmation, {
+        txHash,
+        title: "Awaiting confirmation",
+        message: "The transaction was broadcast. Waiting for network confirmation.",
+      });
+    }
+  }, [isConfirmed, markStatus, txHash]);
 
   // Parse receipt on confirmation
   useEffect(() => {
@@ -289,22 +399,41 @@ export default function UploadWizard() {
         };
 
         saveToDb();
+        setWorkflowState("success");
+        confirmTransaction({
+          txHash: receipt.transactionHash,
+          title: "Material published",
+          message: "Your material is now available in the marketplace.",
+        });
       } catch (err) {
         console.error("Receipt parsing error:", err);
         setError(`Mint completed but failed to parse receipt: ${err.message}`);
         setErrorType("receipt");
         setWorkflowState("failed");
+        failTransaction(err instanceof Error ? err : new Error(String(err)), {
+          title: "Confirmation failed",
+          message: err?.message || "Mint completed but we could not parse the receipt.",
+          retryable: true,
+        });
       }
     } else if (isFailed) {
       setError("Transaction failed on-chain. Please try again.");
       setErrorType("chain");
       setWorkflowState("failed");
+      failTransaction(new Error("Transaction failed on-chain. Please try again."), {
+        title: "Transaction failed",
+        message: "Transaction failed on-chain. Please try again.",
+        retryable: true,
+      });
     }
   }, [isConfirmed, isFailed, receipt, uploadResult]);
+  }, [confirmTransaction, failTransaction, isConfirmed, isFailed, receipt]);
 
   const handleReset = () => {
     setTitle("");
     setDescription("");
+    setCategory("");
+    setSubject("");
     setPrice("");
     setUsageRights("Standard License (download only)");
     setVisibility("public");
@@ -318,6 +447,7 @@ export default function UploadWizard() {
     setErrorType(null);
     setMintResult(null);
     setUploadProgress(0);
+    clearTransaction();
   };
 
   const isSubmitting = workflowState === "uploading" || workflowState === "minting";
@@ -447,9 +577,40 @@ export default function UploadWizard() {
       </div>
 
       {/* Error Alert */}
-      {error && (
+      {error && !chainMismatch && (
         <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
           <p className="text-red-600 text-sm">{error}</p>
+        </div>
+      )}
+
+      <div className="px-6 mt-4">
+        <TransactionStatusPanel
+          transaction={activeTransaction}
+          onRetry={handleSubmit}
+          onClear={clearTransaction}
+        />
+      </div>
+      {chainMismatch && (
+        <div className="mx-6 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-md">
+          <div className="flex items-start gap-3">
+            <FaExclamationTriangle className="text-amber-500 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-800 mb-1">
+                Wrong Network Detected
+              </p>
+              <p className="text-xs text-amber-700 mb-3">
+                Publishing requires the <strong>{celoSepolia.name}</strong> network. Your wallet is currently on chain ID <strong>{chainId}</strong>.
+              </p>
+              <button
+                type="button"
+                onClick={handleSwitchChain}
+                disabled={switchingChain}
+                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white text-xs font-medium rounded-md transition"
+              >
+                {switchingChain ? "Switching..." : `Switch to ${celoSepolia.name}`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -480,6 +641,20 @@ export default function UploadWizard() {
               <div className="flex justify-between text-xs font-semibold text-gray-500 px-1">
                 <span>Storing files...</span>
                 <span>{uploadProgress}%</span>
+            <div>
+              <label className="block text-sm font-medium mb-2">Thumbnail Image (Optional)</label>
+              <div className="flex items-center gap-4">
+                <input type="file" accept="image/*" onChange={handleThumbChange} className="text-sm" />
+              {thumbPreview && (
+                  <Image
+                    src={thumbPreview}
+                    alt="Preview"
+                    width={64}
+                    height={64}
+                    unoptimized
+                    className="rounded object-cover border"
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -502,6 +677,40 @@ export default function UploadWizard() {
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full text-xs font-medium border border-purple-100">
               <span className="w-2 h-2 rounded-full bg-purple-500 animate-ping"></span>
               Waiting for wallet confirmation...
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Category</label>
+              <select
+                value={category}
+                onChange={(e) => { setCategory(e.target.value); setSubject(""); }}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+              >
+                <option value="">Select a category</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>{cat.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Subject</label>
+              <select
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                disabled={!category}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="">Select a subject</option>
+                {taxonomySubjects
+                  .filter((s) => !category || s.categoryId === category)
+                  .map((s) => (
+                    <option key={s.id} value={s.label}>{s.label}</option>
+                  ))}
+              </select>
+              {!category && (
+                <p className="text-xs text-gray-400 mt-1">Select a category first</p>
+              )}
             </div>
           </div>
         )}
@@ -581,6 +790,14 @@ export default function UploadWizard() {
                     placeholder="Comprehensive lecture notes covering key development theories and examples."
                     rows={4}
                     className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+                  <p className="text-xs text-gray-500 mb-1">Thumbnail</p>
+                  <Image
+                    src={thumbPreview}
+                    alt="Thumbnail"
+                    width={80}
+                    height={80}
+                    unoptimized
+                    className="rounded object-cover"
                   />
                 </div>
               </div>
@@ -596,6 +813,22 @@ export default function UploadWizard() {
                   </p>
                 </div>
 
+              )}
+              {category && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Category</p>
+                  <p className="text-sm font-medium">
+                    {categories.find((c) => c.id === category)?.label || category}
+                  </p>
+                </div>
+              )}
+              {subject && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Subject</p>
+                  <p className="text-sm font-medium">{subject}</p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-2">Price (CELO) - Optional</label>
                   <input
@@ -724,6 +957,36 @@ export default function UploadWizard() {
           >
             <FaArrowLeft className="text-xs" />
             Previous
+            onClick={handleSubmit}
+            disabled={isSubmitting || !address || chainMismatch}
+            className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+          >
+            {workflowState === "uploading" ? (
+              <>
+                <span className="animate-spin">⏳</span>
+                Uploading... ({uploadProgress}%)
+              </>
+            ) : workflowState === "minting" && isPending ? (
+              <>
+                <span className="animate-spin">⏳</span>
+                Opening wallet...
+              </>
+            ) : workflowState === "minting" && isWaiting ? (
+              <>
+                <span className="animate-spin">⏳</span>
+                Awaiting confirmation...
+              </>
+            ) : workflowState === "minting" ? (
+              <>
+                <span className="animate-spin">⏳</span>
+                Minting NFT...
+              </>
+            ) : (
+              <>
+                Publish & Mint NFT
+                <FaArrowRight className="text-xs" />
+              </>
+            )}
           </button>
 
           {currentStep < STEPS.length ? (

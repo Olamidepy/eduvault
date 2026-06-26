@@ -21,6 +21,10 @@ Optional fields:
 - `institution`, `country`, `bio`.
 - `walletAddress`: original wallet address supplied by the user.
 - `walletAddressLower`: normalized lookup key.
+- `payoutWalletAddress`: creator settlement wallet for future payouts.
+- `payoutWalletAddressLower`: normalized lookup key for the payout wallet.
+- `preferredPayoutCurrency`: preferred display currency for earnings and settlement metadata.
+- `payoutNotes`: optional creator notes for finance and operations.
 
 Indexes:
 
@@ -34,13 +38,22 @@ Authoritative off-chain listing metadata and derived chain linkage.
 Required fields:
 
 - `userAddress`: creator wallet address.
-- `title`, `fileUrl`, `visibility`, `price`.
+- `title`, `storageKey` (or legacy `fileUrl`), `visibility`, `price`.
 - `createdAt` / `updatedAt`.
 
 Optional fields:
 
 - `description`, `usageRights`, `thumbnailUrl`.
+- `coverImageUrl`, `shortSummary`, `learningOutcomes`, `tableOfContents`, `sampleNotes`.
 - `materialId`, `chainContractId`, `chainLedger`, `chainTxHash`, `syncStatus`.
+
+Marketplace preview field notes:
+
+- `coverImageUrl`: optional public image URL for the listing hero.
+- `shortSummary`: short teaser used on marketplace cards and detail headers.
+- `learningOutcomes`: array of short strings, or newline/comma-separated values accepted by the upload flow.
+- `tableOfContents`: array of short strings, or newline/comma-separated values accepted by the upload flow.
+- `sampleNotes`: array of short strings, or newline/comma-separated values accepted by the upload flow.
 
 Indexes:
 
@@ -114,6 +127,19 @@ Response:
 
 - `success`, `user`, `emailSent`.
 
+### `PATCH /api/profile`
+
+Request:
+
+- `displayName`, `bio`, `avatarUrl`, `institution`, `country`, `twitterUrl`, `githubUrl`, `websiteUrl`: optional profile fields.
+- `payoutWalletAddress`: optional wallet address for settlement routing.
+- `preferredPayoutCurrency`: optional uppercase currency code such as `XLM`, `USD`, or `USDC`.
+- `payoutNotes`: optional plain-text payout notes.
+
+Response:
+
+- `success`, `user`.
+
 ### `GET /api/profile?address=...`
 
 Request:
@@ -129,20 +155,59 @@ Response:
 Request:
 
 - `title`: required string.
-- `fileUrl`: required string.
+- `storageKey`: required string for new uploads.
+- `fileUrl`: accepted as a legacy alias for `storageKey`.
 - `price`: optional non-negative number.
 - `visibility`: `private`, `public`, or `unlisted`.
 - `description`, `usageRights`, `thumbnailUrl`: optional strings.
+- `coverImageUrl`, `shortSummary`, `learningOutcomes`, `tableOfContents`, `sampleNotes`: optional preview metadata fields.
 
 Response:
 
 - inserted material record with `id`.
+
+### `POST /api/materials/import`
+
+Request:
+
+- `format`: `json` or `csv`.
+- `dryRun`: boolean flag. When `true`, the API validates without saving.
+- `records` or `items`: array of material records.
+
+Response:
+
+- `dryRun`, `total`, `valid`, `invalid`, `invalidRows`.
+- `imported` when the import is committed.
 
 ### `GET /api/materials`
 
 Response:
 
 - authenticated creator materials sorted newest first.
+
+### `GET /api/purchase`
+
+Response:
+
+- current purchase history for the authenticated account.
+
+### `POST /api/purchase`
+
+Request:
+
+- `materialId`: required material identifier.
+- `signedXdr`: optional signed transaction payload.
+- `email`: optional buyer email used for record enrichment.
+
+Response:
+
+- persisted purchase record or an existing confirmed purchase when the buyer already owns the item.
+
+### `GET /api/entitlements`
+
+Response:
+
+- list of active entitlement records for the authenticated account.
 
 ### `GET /api/market-materials`
 

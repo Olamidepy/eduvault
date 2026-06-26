@@ -1,5 +1,5 @@
 [workspace]
-members = ["contracts/material-registry"]
+members = ["contracts/material-registry", "contracts/purchase-manager"]
 resolver = "2"
 
 [workspace.package]

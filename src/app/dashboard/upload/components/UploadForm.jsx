@@ -1,49 +1,69 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import Image from "next/image";
+import { useState } from "react";
 import { FaCloudUploadAlt } from "react-icons/fa";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { abi } from "../../../../../contracts/EduVaultAbi.js";
-import { celoSepolia } from "wagmi/chains";
-import { parseAbiItem } from "viem";
-
-const contractAddress = "0x3f48520ca0d8d51345b416b5a3e083dac8790f55";
-
-// Transfer event signature for parsing
-const TRANSFER_EVENT = parseAbiItem(
-  "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)"
-);
+import Cropper from "react-easy-crop";
+import { useWallet } from "@/hooks/useWallet";
+import { WalletStatus } from "@/providers/WalletProvider";
+import { useUploadFile, useCreateMaterial } from "@/hooks/api/useMaterials";
+import { getCroppedImageBlob } from "./cropImage";
+import TransactionStatusPanel from "@/components/transactions/TransactionStatusPanel";
+import DragDropUpload from "@/components/DragDropUpload";
+import { useTransactionCenter } from "@/providers/TransactionProvider";
+import { TransactionStatus } from "@/lib/transactions/transaction";
 
 export default function UploadForm() {
-  const { address } = useAccount();
-  const { writeContract, data: txHash, error: writeError, isPending } = useWriteContract();
+  const { state } = useWallet();
+  const address = state.status === WalletStatus.Connected ? state.session.address : null;
+  const uploadFileMutation = useUploadFile();
+  const createMaterialMutation = useCreateMaterial();
   const {
-    isLoading: isWaiting,
-    isSuccess: isConfirmed,
-    isError: isFailed,
-    data: receipt,
-  } = useWaitForTransactionReceipt({ hash: txHash });
+    activeTransaction,
+    beginTransaction,
+    markStatus,
+    confirmTransaction,
+    failTransaction,
+    clearTransaction,
+  } = useTransactionCenter();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [usageRights, setUsageRights] = useState("Standard License (download only)");
   const [visibility, setVisibility] = useState("public");
+  const [level, setLevel] = useState("");
+
+  const [savedUploadData, setSavedUploadData] = useState(null);
 
   const [docFile, setDocFile] = useState(null);
   const [docFileName, setDocFileName] = useState(null);
   const [thumbFile, setThumbFile] = useState(null);
   const [thumbPreview, setThumbPreview] = useState(null);
+  const [thumbCrop, setThumbCrop] = useState({ x: 0, y: 0 });
+  const [thumbZoom, setThumbZoom] = useState(1);
+  const [croppedPixels, setCroppedPixels] = useState(null);
+  const [showCropper, setShowCropper] = useState(false);
 
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-  const [errorType, setErrorType] = useState(null); // 'upload' | 'wallet' | 'chain' | 'receipt'
   const [success, setSuccess] = useState(null);
-  const [mintResult, setMintResult] = useState(null); // { tokenId, txHash, receipt }
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const handleDocChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 50 * 1024 * 1024) {
+        setFieldErrors((prev) => ({
+          ...prev,
+          file: `File size ${(file.size / (1024 * 1024)).toFixed(2)}MB exceeds the 50MB limit.`,
+        }));
+        return;
+      }
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next.file;
+        return next;
+      });
       setDocFile(file);
       setDocFileName(file.name);
     }
@@ -52,156 +72,160 @@ export default function UploadForm() {
   const handleThumbChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setFieldErrors((prev) => ({
+          ...prev,
+          thumb: `File size ${(file.size / (1024 * 1024)).toFixed(2)}MB exceeds the 5MB limit.`,
+        }));
+        return;
+      }
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next.thumb;
+        return next;
+      });
       setThumbFile(file);
       setThumbPreview(URL.createObjectURL(file));
+      setShowCropper(true);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
-    setErrorType(null);
     setSuccess(null);
-    setMintResult(null);
+    setFieldErrors({});
 
-    if (!title || !docFile) {
-      setError("Title and document file are required.");
-      setErrorType("validation");
+    const errors = {};
+
+    if (!title.trim()) {
+      errors.title = "Title is required.";
+    }
+    if (!docFile) {
+      errors.file = "Please upload a document file.";
+    }
+    if (price) {
+      const priceNum = Number(price);
+      if (isNaN(priceNum) || priceNum < 0.1) {
+        errors.price = "Price must be at least 0.1 XLM.";
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      failTransaction(new Error(Object.values(errors).join(" ")), {
+        title: "Validation failed",
+        message: "Please fix the highlighted fields before submitting.",
+        retryable: false,
+      });
       return;
     }
+
+    beginTransaction({
+      scope: "publish",
+      title: "Publishing material",
+      message: "Preparing your material for upload and wallet approval.",
+    });
 
     if (!address) {
-      setError("Please connect your wallet to mint an NFT.");
-      setErrorType("wallet");
+      setError("Please connect your wallet to upload a material.");
+      failTransaction(new Error("Please connect your wallet to upload a material."), {
+        title: "Wallet required",
+        message: "Connect your wallet before publishing this material.",
+        retryable: true,
+      });
       return;
     }
 
-    setSubmitting(true);
-
     try {
-      // 1️⃣ Prepare FormData including all metadata
-      const formData = new FormData();
-      formData.append("file", docFile);
-      if (thumbFile) formData.append("thumbnail", thumbFile);
-      formData.append("name", title); //use the title for name
-      formData.append("description", description);
-      formData.append("price", price);
-      formData.append("usageRights", usageRights);
-      formData.append("visibility", visibility);
-      formData.append("owner", address);
-
-      // 2️⃣ Upload everything to backend (which uploads to Pinata)
-      const uploadRes = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
+      markStatus(TransactionStatus.Submitting, {
+        title: "Uploading material",
+        message: "Uploading files and creating the on-chain record.",
       });
-      const uploadData = await uploadRes.json();
-      console.log("Pinata Upload Response:", uploadData);
 
-      if (!uploadRes.ok || !uploadData?.metadata) {
-        throw new Error(uploadData?.error || "File upload failed");
+      let uploadData = savedUploadData;
+      if (!uploadData) {
+        const formData = new FormData();
+        formData.append("file", docFile);
+        if (thumbFile && thumbPreview && croppedPixels) {
+          const croppedBlob = await getCroppedImageBlob(
+            thumbPreview,
+            croppedPixels,
+            thumbFile.type || "image/jpeg",
+          );
+          formData.append("thumbnail", croppedBlob, `thumb-cropped.${thumbFile.type?.split("/")[1] || "jpg"}`);
+        } else if (thumbFile) {
+          formData.append("thumbnail", thumbFile);
+        }
+        formData.append("name", title);
+        formData.append("description", description);
+        formData.append("price", price);
+        formData.append("usageRights", usageRights);
+        formData.append("visibility", visibility);
+        formData.append("owner", address);
+
+        // 1. Upload to Pinata
+        uploadData = await uploadFileMutation.mutateAsync(formData);
+
+        if (!uploadData?.metadata) {
+          throw new Error("File upload failed");
+        }
+        setSavedUploadData(uploadData);
       }
 
-      const tokenURI = uploadData.metadata;
-
-      // 3️⃣ Mint NFT
-      writeContract({
-        address: contractAddress,
-        abi,
-        functionName: "mint",
-        args: [tokenURI],
-        chain: celoSepolia,
+      markStatus(TransactionStatus.PendingConfirmation, {
+        title: "Awaiting confirmation",
+        message: "The upload succeeded. We are finalizing the material record.",
       });
+
+      // 2. Create database record
+      await createMaterialMutation.mutateAsync({
+        title,
+        description,
+        price,
+        usageRights,
+        visibility,
+        level: level || undefined,
+        storageKey: uploadData.storageKey,
+        thumbnail: uploadData.image,
+        metadataUrl: uploadData.metadata,
+        creator: address,
+      });
+
+      confirmTransaction({
+        title: "Material published",
+        message: "Your material is now available in the marketplace.",
+      });
+
+      setSuccess(
+        "Document uploaded successfully and record created!"
+      );
+      // Reset form
+      setTitle("");
+      setDescription("");
+      setPrice("");
+      setLevel("");
+      setDocFile(null);
+      setDocFileName(null);
+      setThumbFile(null);
+      setThumbPreview(null);
+      setShowCropper(false);
+      setThumbCrop({ x: 0, y: 0 });
+      setThumbZoom(1);
+      setCroppedPixels(null);
+      setSavedUploadData(null);
     } catch (err) {
-      console.error("Upload or Mint Error:", err);
+      console.error("Upload Error:", err);
       setError(err?.message || "Something went wrong. Please try again.");
-      setErrorType("upload");
-      setSubmitting(false);
+      failTransaction(err instanceof Error ? err : new Error(String(err)), {
+        title: "Publish failed",
+        message: err?.message || "Something went wrong. Please try again.",
+        retryable: true,
+      });
     }
   };
 
-  // 4️⃣ React to writeContract errors (wallet/chain failures)
-  useEffect(() => {
-    if (writeError) {
-      console.error("Write Contract Error:", writeError);
-      
-      // Distinguish between user rejection and other errors
-      if (writeError.code === "ACTION_REJECTED" || writeError.message?.includes("User rejected")) {
-        setError("Transaction rejected by user. Please try again.");
-        setErrorType("wallet");
-      } else if (writeError.message?.includes("insufficient funds")) {
-        setError("Insufficient funds for gas. Please add CELO to your wallet.");
-        setErrorType("wallet");
-      } else {
-        setError(writeError.message || "Transaction failed. Please try again.");
-        setErrorType("chain");
-      }
-      
-      setSubmitting(false);
-    }
-  }, [writeError]);
-
-  // 5️⃣ Parse receipt and extract token ID on confirmation
-  useEffect(() => {
-    if (isConfirmed && receipt) {
-      try {
-        // Find the Transfer event from our contract
-        const transferLog = receipt.logs.find(
-          (log) =>
-            log.address.toLowerCase() === contractAddress.toLowerCase() &&
-            log.topics[0] === TRANSFER_EVENT.type
-        );
-
-        if (!transferLog) {
-          throw new Error("Transfer event not found in transaction receipt");
-        }
-
-        // Parse the tokenId from the log (third indexed parameter = topics[3])
-        const tokenId = BigInt(transferLog.topics[3]).toString();
-
-        if (!tokenId || tokenId === "0") {
-          throw new Error("Invalid token ID in receipt");
-        }
-
-        // Store complete mint result
-        setMintResult({
-          tokenId,
-          txHash: receipt.transactionHash,
-          receipt,
-        });
-
-        setSuccess(`🎉 Document uploaded successfully! Token ID: ${tokenId}`);
-        console.log("Mint result:", { tokenId, txHash: receipt.transactionHash });
-      } catch (err) {
-        console.error("Receipt parsing error:", err);
-        setError(`Mint completed but failed to parse receipt: ${err.message}`);
-        setErrorType("receipt");
-      } finally {
-        setSubmitting(false);
-      }
-    } else if (isFailed) {
-      setError("Transaction failed on-chain. Please try again.");
-      setErrorType("chain");
-      setSubmitting(false);
-    }
-  }, [isConfirmed, isFailed, receipt]);
-
-  // Reset form on success
-  const handleReset = () => {
-    setTitle("");
-    setDescription("");
-    setPrice("");
-    setUsageRights("Standard License (download only)");
-    setVisibility("public");
-    setDocFile(null);
-    setDocFileName(null);
-    setThumbFile(null);
-    setThumbPreview(null);
-    setSuccess(null);
-    setError(null);
-    setErrorType(null);
-    setMintResult(null);
-  };
+  const submitting = uploadFileMutation.isPending || createMaterialMutation.isPending;
 
   return (
     <form
@@ -210,10 +234,9 @@ export default function UploadForm() {
     >
       <h2 className="text-xl font-bold mb-6">Create a New Study Resource</h2>
       <p className="text-sm text-gray-600 mb-8">
-        Upload your lecture notes, projects, or past questions — and mint them as NFTs on-chain.
+        Upload lecture notes, projects, or past questions. The active chain layer is moving to Soroban, so this form handles file storage and cataloging.
       </p>
 
-      {/* Document Title */}
       <div className="mb-5">
         <label className="block text-sm font-medium mb-2">Document Title</label>
         <input
@@ -221,12 +244,16 @@ export default function UploadForm() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. ECO 304 - Development Economics Lecture Notes"
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+          className={`w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500 ${fieldErrors.title ? "border-red-500" : "border-gray-300"}`}
+          maxLength={160}
           required
+          aria-describedby={fieldErrors.title ? "title-error" : undefined}
         />
+        {fieldErrors.title && (
+          <p id="title-error" className="text-red-600 text-xs mt-1">{fieldErrors.title}</p>
+        )}
       </div>
 
-      {/* Short Description */}
       <div className="mb-5">
         <label className="block text-sm font-medium mb-2">Short Description</label>
         <textarea
@@ -234,35 +261,111 @@ export default function UploadForm() {
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Comprehensive lecture notes covering key development theories and examples."
           rows={3}
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+          maxLength={5000}
+          className={`w-full border rounded-md px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 ${fieldErrors.description ? "border-red-500" : "border-gray-300"}`}
+          aria-describedby={fieldErrors.description ? "description-error" : undefined}
         />
+        {fieldErrors.description && (
+          <p id="description-error" className="text-red-600 text-xs mt-1">{fieldErrors.description}</p>
+        )}
       </div>
 
-      {/* Thumbnail */}
       <div className="mb-5">
-        <label className="block text-sm font-medium mb-2">Thumbnail Image</label>
-        <div className="flex items-center gap-4">
-          <input type="file" accept="image/*" onChange={handleThumbChange} className="text-sm" />
-          {thumbPreview && (
-            <img
-              src={thumbPreview}
-              alt="Thumbnail Preview"
-              className="w-16 h-16 rounded object-cover border"
+        <label className="block text-sm font-medium mb-2">Cover Image</label>
+        <div className="flex flex-col gap-4">
+          {!thumbPreview && (
+            <DragDropUpload
+              onFileSelect={(file) => handleThumbChange({ target: { files: [file] } })}
+              error={fieldErrors.thumb}
             />
+          )}
+          {fieldErrors.thumb && (
+            <p id="thumb-error" className="text-red-600 text-xs mt-1">{fieldErrors.thumb}</p>
+          )}
+          {thumbPreview && showCropper && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <p className="text-xs text-gray-600 mb-2">
+                Crop cover image (locked 16:9 ratio for marketplace cards)
+              </p>
+              <div className="relative h-56 w-full overflow-hidden rounded-md bg-gray-900">
+                <Cropper
+                  image={thumbPreview}
+                  crop={thumbCrop}
+                  zoom={thumbZoom}
+                  aspect={16 / 9}
+                  onCropChange={setThumbCrop}
+                  onZoomChange={setThumbZoom}
+                  onCropComplete={(_, croppedAreaPixels) =>
+                    setCroppedPixels(croppedAreaPixels)
+                  }
+                />
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <label className="text-xs text-gray-600">Zoom</label>
+                <input
+                  type="range"
+                  min={1}
+                  max={3}
+                  step={0.1}
+                  value={thumbZoom}
+                  onChange={(event) => setThumbZoom(Number(event.target.value))}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCropper(false)}
+                  className="ml-auto rounded-md border border-gray-300 px-3 py-1 text-xs hover:bg-white"
+                >
+                  Use Crop
+                </button>
+              </div>
+            </div>
+          )}
+          {thumbPreview && !showCropper && (
+            <div className="flex items-center gap-4">
+              <Image
+                src={thumbPreview}
+                alt="Final Cover Preview"
+                width={160}
+                height={90}
+                className="rounded object-cover border"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCropper(true)}
+                className="rounded-md border border-gray-300 px-3 py-2 text-xs hover:bg-gray-100"
+              >
+                Re-crop cover
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setThumbFile(null);
+                  setThumbPreview(null);
+                  setShowCropper(false);
+                }}
+                className="rounded-md border border-gray-300 px-3 py-2 text-xs hover:bg-gray-100 text-red-600"
+              >
+                Remove
+              </button>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Upload File */}
       <div className="mb-5">
         <label className="block text-sm font-medium mb-2">Upload Your File</label>
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition">
+        <p className="text-xs text-gray-500 mb-2">
+          Max file size: 50MB. Accepted types: PDF, ZIP, EPUB, MP4.
+        </p>
+        <div className={`border-2 border-dashed rounded-lg p-6 text-center transition ${fieldErrors.file ? "border-red-500 hover:border-red-600 bg-red-50" : "border-gray-300 hover:border-blue-400"}`}>
           <input
             type="file"
             id="file-upload"
             className="hidden"
             onChange={handleDocChange}
-            accept=".pdf,.doc,.docx,.ppt,.pptx,.zip"
+            accept=".pdf,.zip,.epub,.mp4"
+            aria-label="Upload document file"
+            aria-describedby={fieldErrors.file ? "file-error" : undefined}
           />
           <label
             htmlFor="file-upload"
@@ -276,32 +379,39 @@ export default function UploadForm() {
                 <>
                   Tap to Upload{" "}
                   <span className="text-gray-400">
-                    (.pdf, .docx, .pptx, .zip | 10MB max)
+                    (.pdf, .zip, .epub, .mp4 | 50MB max)
                   </span>
                 </>
               )}
             </p>
-            <button
-              type="button"
+            <div
               className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
             >
               Choose File
-            </button>
+            </div>
           </label>
         </div>
+        {fieldErrors.file && (
+          <p id="file-error" className="text-red-600 text-xs mt-1">{fieldErrors.file}</p>
+        )}
       </div>
 
-      {/* Price + Usage Rights */}
-      <div className="grid sm:grid-cols-2 gap-4 mb-5">
+      <div className="grid sm:grid-cols-3 gap-4 mb-5">
         <div>
           <label className="block text-sm font-medium mb-2">Set Your Price (optional)</label>
           <input
             type="number"
             value={price}
             onChange={(e) => setPrice(e.target.value)}
-            placeholder="celo"
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+            placeholder="amount"
+            min="0"
+            step="0.01"
+            className={`w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500 ${fieldErrors.price ? "border-red-500" : "border-gray-300"}`}
+            aria-describedby={fieldErrors.price ? "price-error" : undefined}
           />
+          {fieldErrors.price && (
+            <p id="price-error" className="text-red-600 text-xs mt-1">{fieldErrors.price}</p>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium mb-2">Usage Rights</label>
@@ -315,9 +425,22 @@ export default function UploadForm() {
             <option>Private Use Only</option>
           </select>
         </div>
+        <div>
+          <label className="block text-sm font-medium mb-2">Level</label>
+          <select
+            value={level}
+            onChange={(e) => setLevel(e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+          >
+            <option value="">Select Level</option>
+            <option value="beginner">Beginner</option>
+            <option value="intermediate">Intermediate</option>
+            <option value="advanced">Advanced</option>
+            <option value="all-levels">All Levels</option>
+          </select>
+        </div>
       </div>
 
-      {/* Visibility */}
       <div className="mb-6">
         <label className="block text-sm font-medium mb-2">Visibility</label>
         <div className="flex flex-col gap-2 text-sm">
@@ -330,7 +453,7 @@ export default function UploadForm() {
               onChange={() => setVisibility("public")}
               className="accent-blue-600"
             />
-            Public (default) — Anyone can view or download.
+            Public (default) - Anyone can view or download.
           </label>
           <label className="flex items-center gap-2">
             <input
@@ -341,53 +464,35 @@ export default function UploadForm() {
               onChange={() => setVisibility("private")}
               className="accent-blue-600"
             />
-            Private — Only you and invited users can access.
+            Private - Only you and invited users can access.
           </label>
         </div>
       </div>
 
-      {/* Feedback */}
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-red-600 text-sm">{error}</p>
-          {errorType && (
-            <p className="text-red-500 text-xs mt-1">Error type: {errorType}</p>
-          )}
-        </div>
-      )}
-      {success && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
-          <p className="text-green-600 text-sm">{success}</p>
-          {mintResult && (
-            <div className="mt-2 text-xs text-green-700">
-              <p>Transaction: {mintResult.txHash.slice(0, 10)}...{mintResult.txHash.slice(-8)}</p>
-              <p>Token ID: {mintResult.tokenId}</p>
-            </div>
-          )}
-        </div>
-      )}
+      {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
+      {success && <p className="text-green-600 text-sm mb-4">{success}</p>}
 
-      {/* Buttons */}
+      <div className="mb-5">
+        <TransactionStatusPanel
+          transaction={activeTransaction}
+          onRetry={handleSubmit}
+          onClear={clearTransaction}
+        />
+      </div>
+
       <div className="flex justify-end gap-4">
-        {success && (
-          <button
-            type="button"
-            onClick={handleReset}
-            className="px-5 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition text-sm font-medium"
-          >
-            Upload Another
-          </button>
-        )}
         <button
           type="submit"
-          disabled={submitting || isPending || isWaiting || success}
+          disabled={submitting}
           className="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-sm font-medium disabled:opacity-60"
         >
-          {submitting
-            ? "Uploading..."
-            : isPending || isWaiting
-              ? "Minting NFT..."
-              : "Submit & Mint NFT"}
+          {activeTransaction.status === TransactionStatus.PendingConfirmation
+            ? "Awaiting confirmation..."
+            : submitting
+              ? "Processing..."
+              : savedUploadData
+                ? "Retry Publishing"
+                : "Submit Upload"}
         </button>
       </div>
     </form>

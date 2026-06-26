@@ -1,11 +1,30 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { auditLog } from "@/lib/api/audit";
 import { withApiHardening } from "@/lib/api/hardening";
 import { parsePagination } from "@/lib/api/validation";
+import { buildMarketplaceDiscoveryQuery, buildMarketplaceSort } from "@/lib/backend/marketplaceDiscovery";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 
 export const runtime = "nodejs";
+
+function sanitizeMaterial(doc) {
+  if (!doc) return doc;
+  const { storageKey, fileUrl, metadataUrl, ...safe } = doc;
+  const averageScore = Number(safe.averageScore ?? safe.rating ?? 0) || 0;
+  const feedbackCount = Number(safe.feedbackCount ?? safe.reviewsCount ?? 0) || 0;
+
+  return {
+    ...safe,
+    averageScore,
+    rating: averageScore,
+    feedbackCount,
+    reviewsCount: feedbackCount,
+    userAddress: safe.userAddress ?? safe.ownerAddress ?? null,
+  };
+}
 
 // GET /api/market-materials
 // Returns all public materials across users, newest first
@@ -35,30 +54,25 @@ export async function GET(request) {
         return NextResponse.json({ error: "Material not found" }, { status: 404 });
       }
 
-      return NextResponse.json({
-        ...item,
-        userAddress: item.userAddress ?? item.ownerAddress ?? null,
-      });
+      return NextResponse.json(sanitizeMaterial(item));
     }
 
     // 2️⃣ Handle list fetch
     const { page, pageSize } = parsePagination(url.searchParams);
 
-    const query = { visibility: "public" };
+    const query = buildMarketplaceDiscoveryQuery(url.searchParams);
+    const sort = buildMarketplaceSort(url.searchParams.get("sortBy"));
+
     const total = await db.collection("materials").countDocuments(query);
     const items = await db
       .collection("materials")
       .find(query)
-      .sort({ createdAt: -1 })
+      .sort(sort)
       .skip((page - 1) * pageSize)
       .limit(pageSize)
       .toArray();
 
-    // Normalize address field to ensure frontend consistency
-    const normalized = items.map((doc) => ({
-      ...doc,
-      userAddress: doc.userAddress ?? doc.ownerAddress ?? null,
-    }));
+    const normalized = items.map(sanitizeMaterial);
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

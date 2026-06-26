@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auditLog } from '@/lib/api/audit'
 import { withApiHardening } from '@/lib/api/hardening'
-import { sanitizeObject } from '@/lib/api/validation'
+import { normalizeStringList, sanitizeObject, validateUploadPayload, validateUploadFileMetadata } from '@/lib/api/validation'
 import { pinata } from '@/lib/pinata'
 
 export const dynamic = 'force-dynamic'
@@ -122,6 +122,48 @@ export async function POST(request) {
           }
         }
 
+        // 3.5️⃣ Validate file metadata with structured validation
+        try {
+          validateUploadFileMetadata(file, "file")
+        } catch (validationErr) {
+          auditLog({
+            event: "upload_failed",
+            route: "upload",
+            method: "POST",
+            status: 400,
+            reason: validationErr.message,
+          })
+          return NextResponse.json(
+            { error: validationErr.message },
+            { status: 400 }
+          )
+        }
+
+        // 3.6️⃣ Validate upload metadata fields
+        const metadataPayload = {
+          title: form.get("title") || form.get("name"),
+          description: form.get("description"),
+          price: form.get("price"),
+          usageRights: form.get("usageRights"),
+          visibility: form.get("visibility"),
+        }
+
+        try {
+          validateUploadPayload(metadataPayload)
+        } catch (validationErr) {
+          auditLog({
+            event: "upload_failed",
+            route: "upload",
+            method: "POST",
+            status: 400,
+            reason: validationErr.message,
+          })
+          return NextResponse.json(
+            { error: validationErr.message },
+            { status: 400 }
+          )
+        }
+
         const results = {}
 
         // 4️⃣ Upload the main file
@@ -143,16 +185,43 @@ export async function POST(request) {
             otherFields[key] = value
           }
         }
-        const sanitizedFields = sanitizeObject(otherFields, {
+        const previewInputs = {
+          learningOutcomes: otherFields.learningOutcomes,
+          tableOfContents: otherFields.tableOfContents,
+          sampleNotes: otherFields.sampleNotes,
+        }
+        const scalarFields = { ...otherFields }
+        delete scalarFields.learningOutcomes
+        delete scalarFields.tableOfContents
+        delete scalarFields.sampleNotes
+        const sanitizedScalarFields = sanitizeObject(scalarFields, {
           title: 160,
           description: 5000,
+          shortSummary: 280,
           usageRights: 1000,
+          coverImageUrl: 2048,
+          thumbnailUrl: 2048,
         })
 
-        // Include file URLs inside the metadata
+        // Include storage reference inside the metadata
         const metadataJSON = {
-          ...sanitizedFields,
-          file: results.fileUrl,
+          ...sanitizedScalarFields,
+          coverImageUrl: results.imgUrl || sanitizedScalarFields.coverImageUrl || null,
+          thumbnailUrl: results.imgUrl || sanitizedScalarFields.thumbnailUrl || null,
+          learningOutcomes: normalizeStringList(previewInputs.learningOutcomes, {
+            maxItems: 8,
+            maxLength: 180,
+          }),
+          tableOfContents: normalizeStringList(previewInputs.tableOfContents, {
+            maxItems: 16,
+            maxLength: 180,
+          }),
+          sampleNotes: normalizeStringList(previewInputs.sampleNotes, {
+            maxItems: 6,
+            maxLength: 280,
+          }),
+          storageKey: uploadedFile.cid,
+          fileUrl: results.fileUrl,
           image: results.imgUrl || null,
           timestamp: new Date().toISOString(),
         }
@@ -175,10 +244,10 @@ export async function POST(request) {
           status: 200,
         })
 
-        // 8️⃣ Return the JSON file URL
+        // 8️⃣ Return the CID as storageKey
         return NextResponse.json({
           success: true,
-          fileUrl: results.fileUrl,
+          storageKey: uploadedFile.cid,
           image: results.imgUrl || '',
           metadata: results.metadataUrl,
         })

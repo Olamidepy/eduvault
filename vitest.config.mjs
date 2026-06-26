@@ -1,17 +1,23 @@
-import { defineConfig } from 'vitest/config'
-import react from '@vitejs/plugin-react-swc' // Added "plugin-" here
-import path from 'path'
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vitest/config";
+
+const srcPath = fileURLToPath(new URL("./src", import.meta.url));
+const sentryMockPath = fileURLToPath(new URL("./test/mocks/sentry-nextjs.js", import.meta.url));
 
 export default defineConfig({
-  plugins: [react()],
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: './src/test/setup.js',
-  },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      "@": srcPath,
+      "@sentry/nextjs": sentryMockPath,
     },
   },
-})
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./test/setup-vitest.js"],
+    include: [
+      "src/**/*.{test,spec}.{js,jsx,ts,tsx}",
+      "test/integration/**/*.{test,spec}.{js,jsx,ts,tsx}",
+    ],
+    exclude: ["tests/**", "archive/**", "contracts/**", "soroban/**", "node_modules/**"],
+  },
+});
