@@ -89,6 +89,7 @@ export function buildMaterialHistoryEntry({ materialId, previousDoc, update, upd
   return {
     materialId,
     changes,
+    version: (previousDoc?.version || 1) + 1,
     updatedBy,
     updatedAt: new Date(),
     changeReason: changeReason || null,
