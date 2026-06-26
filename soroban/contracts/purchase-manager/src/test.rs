@@ -1121,3 +1121,40 @@ fn set_oracle_and_get_asset_info_work() {
     assert_eq!(info.kind, AssetKind::Token);
     assert!(info.enabled);
 }
+
+#[test]
+fn returns_false_for_non_existent_users() {
+    let env = Env::default();
+    env.mock_all_auths();
+    
+    let admin = Address::generate(&env);
+    let registry = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    
+    let (_, client) = install_and_init_contract(&env, &admin, &registry, &treasury, 500);
+    
+    let unknown_buyer = Address::generate(&env);
+    let material_id = bytes32(&env, 99);
+    
+    assert!(!client.has_entitlement(&material_id, &unknown_buyer));
+}
+
+#[test]
+fn purchase_fails_for_invalid_items() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let registry = env.register(MockRegistry, ());
+    let treasury = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let asset = Address::generate(&env);
+
+    let (_, client) = install_and_init_contract(&env, &admin, &registry, &treasury, 500);
+    client.set_asset_allowed(&admin, &asset, &AssetKind::Token, &true);
+
+    let invalid_material_id = bytes32(&env, 100);
+
+    let result = client.try_purchase(&buyer, &invalid_material_id, &asset, &1_000_000);
+    assert_eq!(result, Err(Ok(PurchaseError::MaterialNotFound)));
+}
