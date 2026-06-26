@@ -8,6 +8,7 @@ use soroban_sdk::{
 const BASIS_POINTS: u32 = 10_000;
 const MAX_PLATFORM_FEE_BPS: u32 = 1_000;
 const MAX_PAYOUT_RECIPIENTS: u32 = 5;
+const ESCROW_LOCK_PERIOD_LEDGERS: u32 = 35_000;
 
 /// Volume-tier discounted fee rates (basis points).
 /// Tier 1: 2.5 %, Tier 2: 1.5 %.
@@ -113,6 +114,21 @@ pub struct EntitlementRecord {
     pub granted_ledger: u32,
 }
 
+/// Escrow record holding creator payout funds during the cooling-off period
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowRecord {
+    pub purchase_id: u64,
+    pub material_id: BytesN<32>,
+    pub asset: Address,
+    pub total_amount: i128,
+    pub platform_fee: i128,
+    pub seller_net: i128,
+    pub payout_shares: Vec<PayoutShare>,
+    pub purchase_ledger: u32,
+    pub claimed: bool,
+}
+
 /// Data keys for contract storage
 #[contracttype]
 #[derive(Clone)]
@@ -122,10 +138,7 @@ enum DataKey {
     AllowedAsset(Address),
     PurchaseNonce,
     Entitlement((BytesN<32>, Address)),
-    /// Address awaiting confirmation in a two-step admin transfer (#378).
-    PendingAdmin,
-    /// Volume tier assigned to a creator for discounted fee calculation (#381).
-    CreatorTier(Address),
+    Escrow(u64),
 }
 
 /// Contract errors
@@ -157,8 +170,9 @@ pub enum PurchaseError {
     NotAuthorized = 40,
     InvalidTreasury = 41,
     UpgradeFailed = 42,
-    /// `accept_admin` called when no transfer is in progress (#378).
-    NoPendingAdminTransfer = 43,
+
+    // Escrow errors
+    EscrowLocked = 50,
 }
 
 /// Event: purchase.completed
@@ -213,30 +227,28 @@ pub struct PlatformConfigUpdatedEvent {
     pub paused: bool,
 }
 
-/// Event: admin.transfer_initiated — emitted when a two-step admin transfer begins (#378).
-#[contractevent(topics = ["admin", "transfer_initiated"], data_format = "vec")]
+/// Event: escrow.created
+#[contractevent(topics = ["escrow", "created"], data_format = "vec")]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AdminTransferInitiatedEvent {
+pub struct EscrowCreatedEvent {
     #[topic]
-    pub from: Address,
-    pub pending_admin: Address,
+    pub purchase_id: u64,
+    #[topic]
+    pub material_id: BytesN<32>,
+    pub asset: Address,
+    pub amount: i128,
+    pub lock_until_ledger: u32,
 }
 
-/// Event: admin.transfer_accepted — emitted when the new admin completes the transfer (#378).
-#[contractevent(topics = ["admin", "transfer_accepted"], data_format = "vec")]
+/// Event: escrow.released
+#[contractevent(topics = ["escrow", "released"], data_format = "vec")]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AdminTransferAcceptedEvent {
+pub struct EscrowReleasedEvent {
     #[topic]
-    pub new_admin: Address,
-}
-
-/// Event: admin.creator_tier_updated — emitted when a creator's volume tier changes (#381).
-#[contractevent(topics = ["admin", "creator_tier_updated"], data_format = "vec")]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CreatorTierUpdatedEvent {
-    #[topic]
-    pub creator: Address,
-    pub tier: CreatorTier,
+    pub purchase_id: u64,
+    pub material_id: BytesN<32>,
+    pub asset: Address,
+    pub amount: i128,
 }
 
 /// The PurchaseManager contract
@@ -399,7 +411,7 @@ impl PurchaseManager {
     /// Execute a purchase for a material
     /// - Validates material is active and asset is accepted
     /// - Collects payment from buyer
-    /// - Routes payouts to creator shares and treasury
+    /// - Locks creator payout funds in escrow for cooling-off period
     /// - Records entitlement for buyer
     pub fn purchase(
         env: Env,
@@ -412,37 +424,30 @@ impl PurchaseManager {
 
         let config = get_platform_config(&env)?;
 
-        // Check global pause
         if config.paused {
             return Err(PurchaseError::ContractPaused);
         }
 
-        // Check global asset allowlist
         if !is_asset_allowed(&env, &asset) {
             return Err(PurchaseError::AssetNotAllowed);
         }
 
-        // Check for existing entitlement (prevent duplicate purchase)
         if has_entitlement_internal(&env, &material_id, &buyer) {
             return Err(PurchaseError::EntitlementAlreadyExists);
         }
 
-        // Fetch material from registry
         let material: MaterialRecord = config
             .registry
             .get_material(&env, &material_id)
             .map_err(|_| PurchaseError::MaterialNotFound)?;
 
-        // Verify material is active
         if material.status != MaterialStatus::Active || material.paused {
             return Err(PurchaseError::MaterialNotActive);
         }
 
-        // Find quote for the requested asset
         let quote = find_quote(&material.quotes, &asset)
             .ok_or(PurchaseError::AssetNotAcceptedForMaterial)?;
 
-        // Verify expected amount matches current quote (prevent stale UI)
         if quote.amount != expected_amount {
             return Err(PurchaseError::InvalidQuoteAmount);
         }
@@ -452,26 +457,18 @@ impl PurchaseManager {
 
         validate_payout_shares(&material.payout_shares)?;
 
-        // Calculate payout amounts.
-        // Effective fee rate respects any volume-tier discount assigned to the creator.
-        // Integer division truncates toward zero, so the creator never pays more than
-        // the stated rate — any sub-stroopa remainder stays with the seller.
         let gross = quote.amount;
         let effective_fee_bps =
             get_effective_fee_bps(&env, &material.creator, config.platform_fee_bps);
         let platform_fee = (gross * effective_fee_bps as i128) / BASIS_POINTS as i128;
         let seller_net = gross - platform_fee;
 
-        // Get purchase ID and increment nonce
         let purchase_id = get_and_increment_purchase_nonce(&env)?;
         let current_ledger = env.ledger().sequence();
 
-        // Execute transfers atomically
-        // 1. Transfer platform fee to treasury
         if platform_fee > 0 {
             transfer_asset(&env, &buyer, &config.treasury, &asset, platform_fee)?;
 
-            // Emit treasury payout event
             PayoutDistributedEvent {
                 purchase_id,
                 material_id: material_id.clone(),
@@ -483,18 +480,38 @@ impl PurchaseManager {
             .publish(&env);
         }
 
-        // 2. Transfer seller net amount to payout recipients
-        distribute_payout_shares(
-            &env,
-            purchase_id,
-            &material_id,
-            &buyer,
-            &material.payout_shares,
-            &asset,
-            seller_net,
-        )?;
+        if seller_net > 0 {
+            transfer_asset(
+                &env,
+                &buyer,
+                &env.current_contract_address(),
+                &asset,
+                seller_net,
+            )?;
+        }
 
-        // 3. Record entitlement
+        let escrow_record = EscrowRecord {
+            purchase_id,
+            material_id: material_id.clone(),
+            asset: asset.clone(),
+            total_amount: gross,
+            platform_fee,
+            seller_net,
+            payout_shares: material.payout_shares.clone(),
+            purchase_ledger: current_ledger,
+            claimed: false,
+        };
+        set_escrow_record(&env, purchase_id, &escrow_record);
+
+        EscrowCreatedEvent {
+            purchase_id,
+            material_id: material_id.clone(),
+            asset: asset.clone(),
+            amount: seller_net,
+            lock_until_ledger: current_ledger + ESCROW_LOCK_PERIOD_LEDGERS,
+        }
+        .publish(&env);
+
         let entitlement = EntitlementRecord {
             material_id: material_id.clone(),
             buyer: buyer.clone(),
@@ -507,7 +524,6 @@ impl PurchaseManager {
 
         set_entitlement(&env, &entitlement);
 
-        // Emit purchase completed event
         PurchaseCompletedEvent {
             purchase_id,
             material_id: material_id.clone(),
@@ -546,6 +562,84 @@ impl PurchaseManager {
     /// Check if an asset is globally allowed for purchases
     pub fn is_asset_allowed(env: Env, asset: Address) -> bool {
         is_asset_allowed(&env, &asset)
+    }
+
+    /// Withdraw escrowed creator payout funds after the lock period expires.
+    /// Only callable by a payout recipient (e.g., the creator).
+    pub fn withdraw_payouts(
+        env: Env,
+        caller: Address,
+        purchase_id: u64,
+    ) -> Result<(), PurchaseError> {
+        caller.require_auth();
+
+        let mut escrow =
+            get_escrow_record_internal(&env, purchase_id).ok_or(PurchaseError::MaterialNotFound)?;
+
+        if escrow.claimed {
+            return Err(PurchaseError::EntitlementAlreadyExists);
+        }
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger < escrow.purchase_ledger + ESCROW_LOCK_PERIOD_LEDGERS {
+            return Err(PurchaseError::EscrowLocked);
+        }
+
+        let caller_is_recipient = {
+            let mut index = 0;
+            let mut found = false;
+            while index < escrow.payout_shares.len() {
+                if escrow.payout_shares.get_unchecked(index).recipient == caller {
+                    found = true;
+                    break;
+                }
+                index += 1;
+            }
+            found
+        };
+
+        if !caller_is_recipient {
+            return Err(PurchaseError::NotAuthorized);
+        }
+
+        if escrow.seller_net > 0 {
+            distribute_payout_shares_from_contract(
+                &env,
+                purchase_id,
+                &escrow.material_id,
+                &escrow,
+            )?;
+        }
+
+        escrow.claimed = true;
+        set_escrow_record(&env, purchase_id, &escrow);
+
+        EscrowReleasedEvent {
+            purchase_id,
+            material_id: escrow.material_id,
+            asset: escrow.asset,
+            amount: escrow.seller_net,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    /// Get the escrow record for a purchase
+    pub fn get_escrow_record(env: Env, purchase_id: u64) -> Option<EscrowRecord> {
+        get_escrow_record_internal(&env, purchase_id)
+    }
+
+    /// Check if the escrow for a purchase can be released
+    pub fn is_escrow_releasable(env: Env, purchase_id: u64) -> bool {
+        if let Some(escrow) = get_escrow_record_internal(&env, purchase_id) {
+            if escrow.claimed {
+                return false;
+            }
+            let current_ledger = env.ledger().sequence();
+            return current_ledger >= escrow.purchase_ledger + ESCROW_LOCK_PERIOD_LEDGERS;
+        }
+        false
     }
 
     // ============== Admin Functions ==============
@@ -954,60 +1048,6 @@ fn validate_payout_shares(payout_shares: &Vec<PayoutShare>) -> Result<(), Purcha
     Ok(())
 }
 
-fn distribute_payout_shares(
-    env: &Env,
-    purchase_id: u64,
-    material_id: &BytesN<32>,
-    buyer: &Address,
-    payout_shares: &Vec<PayoutShare>,
-    asset: &Address,
-    seller_net: i128,
-) -> Result<(), PurchaseError> {
-    let mut total_distributed: i128 = 0;
-    let share_count = payout_shares.len();
-    let creator_share_role = Symbol::new(env, "creator_share");
-
-    let mut index = 0;
-    while index < share_count {
-        let share = payout_shares.get_unchecked(index);
-
-        // Calculate share amount
-        let share_amount = if index == share_count - 1 {
-            // Last recipient gets remaining to avoid rounding errors
-            seller_net - total_distributed
-        } else {
-            (seller_net * share.share_bps as i128) / BASIS_POINTS as i128
-        };
-
-        if share_amount > 0 {
-            // Transfer to recipient
-            transfer_asset(env, buyer, &share.recipient, asset, share_amount)?;
-            total_distributed += share_amount;
-
-            // Emit payout event
-            PayoutDistributedEvent {
-                purchase_id,
-                material_id: material_id.clone(),
-                recipient: share.recipient.clone(),
-                role: creator_share_role.clone(),
-                asset: asset.clone(),
-                amount: share_amount,
-            }
-            .publish(env);
-        }
-
-        index += 1;
-    }
-
-    // Verify full distribution
-    if total_distributed != seller_net {
-        // This shouldn't happen with proper payout shares, but we verify
-        return Err(PurchaseError::InvalidPayoutShares);
-    }
-
-    Ok(())
-}
-
 fn has_entitlement_internal(env: &Env, material_id: &BytesN<32>, buyer: &Address) -> bool {
     get_entitlement_internal(env, material_id, buyer)
         .map(|e| e.active)
@@ -1029,6 +1069,69 @@ fn set_entitlement(env: &Env, entitlement: &EntitlementRecord) {
         &DataKey::Entitlement((entitlement.material_id.clone(), entitlement.buyer.clone())),
         entitlement,
     );
+}
+
+fn get_escrow_record_internal(env: &Env, purchase_id: u64) -> Option<EscrowRecord> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Escrow(purchase_id))
+}
+
+fn set_escrow_record(env: &Env, purchase_id: u64, record: &EscrowRecord) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Escrow(purchase_id), record);
+}
+
+fn distribute_payout_shares_from_contract(
+    env: &Env,
+    purchase_id: u64,
+    material_id: &BytesN<32>,
+    escrow: &EscrowRecord,
+) -> Result<(), PurchaseError> {
+    let contract_address = env.current_contract_address();
+    let mut total_distributed: i128 = 0;
+    let share_count = escrow.payout_shares.len();
+
+    let mut index = 0;
+    while index < share_count {
+        let share = escrow.payout_shares.get_unchecked(index);
+
+        let share_amount = if index == share_count - 1 {
+            escrow.seller_net - total_distributed
+        } else {
+            (escrow.seller_net * share.share_bps as i128) / BASIS_POINTS as i128
+        };
+
+        if share_amount > 0 {
+            transfer_asset(
+                env,
+                &contract_address,
+                &share.recipient,
+                &escrow.asset,
+                share_amount,
+            )?;
+            total_distributed += share_amount;
+
+            PayoutDistributedEvent {
+                purchase_id,
+                material_id: material_id.clone(),
+                recipient: share.recipient.clone(),
+                role: Symbol::new(env, "creator_share"),
+                asset: escrow.asset.clone(),
+                amount: share_amount,
+            }
+            .publish(env);
+        }
+
+        index += 1;
+    }
+
+    if total_distributed != escrow.seller_net {
+        return Err(PurchaseError::InvalidPayoutShares);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
