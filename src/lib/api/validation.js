@@ -3,7 +3,7 @@ import {
   normalizeCategory,
   normalizeLevel,
   validateCategorySubject,
-} from "@/lib/backend/taxonomy";
+} from "../backend/taxonomy.js";
 
 export class ValidationError extends Error {
   constructor(message, details = {}) {

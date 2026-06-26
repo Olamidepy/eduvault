@@ -11,9 +11,11 @@ export function withScope(callback) {
   });
 }
 
-export default {
+const sentryMock = {
   captureException,
   captureMessage,
   setUser,
   withScope,
 };
+
+export default sentryMock;

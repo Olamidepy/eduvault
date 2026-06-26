@@ -47,10 +47,12 @@ export default function UploadWizard() {
   const { switchChainAsync } = useSwitchChain();
 
   const [currentStep, setCurrentStep] = useState(1);
-  
+
   // Form state
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("");
+  const [subject, setSubject] = useState("");
   const [price, setPrice] = useState("");
   const [usageRights, setUsageRights] = useState("Standard License (download only)");
   const [visibility, setVisibility] = useState("public");
@@ -58,6 +60,10 @@ export default function UploadWizard() {
   const [docFileName, setDocFileName] = useState(null);
   const [thumbFile, setThumbFile] = useState(null);
   const [thumbPreview, setThumbPreview] = useState(null);
+
+  // Taxonomy state
+  const [categories, setCategories] = useState([]);
+  const [taxonomySubjects, setTaxonomySubjects] = useState([]);
 
   // Workflow state
   const [workflowState, setWorkflowState] = useState("idle"); // idle | uploading | minting | success | failed
@@ -68,6 +74,22 @@ export default function UploadWizard() {
   const [switchingChain, setSwitchingChain] = useState(false);
 
   const chainMismatch = address && chainId && !isUploadChain(chainId);
+
+  useEffect(() => {
+    async function loadTaxonomy() {
+      try {
+        const res = await fetch("/api/subjects");
+        if (res.ok) {
+          const data = await res.json();
+          setCategories(data.categories || []);
+          setTaxonomySubjects(data.subjects || []);
+        }
+      } catch {
+        // Non-critical — dropdowns stay empty
+      }
+    }
+    loadTaxonomy();
+  }, []);
 
   const handleDocChange = (e) => {
     const file = e.target.files?.[0];
@@ -199,6 +221,8 @@ export default function UploadWizard() {
       formData.append("usageRights", usageRights);
       formData.append("visibility", visibility);
       formData.append("owner", address);
+      if (category) formData.append("category", category);
+      if (subject) formData.append("subject", subject);
 
       // 2️⃣ Upload to backend using shared service
       const uploadData = await uploadFileMutation.mutateAsync(formData);
@@ -329,6 +353,8 @@ export default function UploadWizard() {
   const handleReset = () => {
     setTitle("");
     setDescription("");
+    setCategory("");
+    setSubject("");
     setPrice("");
     setUsageRights("Standard License (download only)");
     setVisibility("public");
@@ -544,6 +570,40 @@ export default function UploadWizard() {
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
               />
             </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Category</label>
+              <select
+                value={category}
+                onChange={(e) => { setCategory(e.target.value); setSubject(""); }}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+              >
+                <option value="">Select a category</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>{cat.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Subject</label>
+              <select
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                disabled={!category}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="">Select a subject</option>
+                {taxonomySubjects
+                  .filter((s) => !category || s.categoryId === category)
+                  .map((s) => (
+                    <option key={s.id} value={s.label}>{s.label}</option>
+                  ))}
+              </select>
+              {!category && (
+                <p className="text-xs text-gray-400 mt-1">Select a category first</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -652,6 +712,20 @@ export default function UploadWizard() {
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Description</p>
                   <p className="text-sm text-gray-700">{description}</p>
+                </div>
+              )}
+              {category && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Category</p>
+                  <p className="text-sm font-medium">
+                    {categories.find((c) => c.id === category)?.label || category}
+                  </p>
+                </div>
+              )}
+              {subject && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Subject</p>
+                  <p className="text-sm font-medium">{subject}</p>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">

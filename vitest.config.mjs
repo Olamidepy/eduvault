@@ -1,22 +1,10 @@
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vitest/config";
 
-export default {
-  test: {
-    environment: 'jsdom',
-    setupFiles: ['./test/setup.js', './src/test/setup.js'],
-    globals: true,
-    include: [
-      'src/**/*.test.{js,jsx,mjs,cjs,ts,tsx}',
-      'test/**/*.test.{js,jsx,mjs,cjs,ts,tsx}',
-    ],
-    exclude: [
-      'node_modules/**',
-      'dist/**',
-      '.next/**',
-      'tests/**',
-      'archive/**',
-    ],
-  },
+const srcPath = fileURLToPath(new URL("./src", import.meta.url));
+const sentryMockPath = fileURLToPath(new URL("./test/mocks/sentry-nextjs.js", import.meta.url));
+
+export default defineConfig({
   resolve: {
     alias: {
       "@": srcPath,
@@ -32,4 +20,4 @@ export default {
     ],
     exclude: ["tests/**", "archive/**", "contracts/**", "soroban/**", "node_modules/**"],
   },
-};
+});

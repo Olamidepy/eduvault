@@ -616,6 +616,54 @@ impl PurchaseManager {
         Ok(())
     }
 
+    /// Pause contract operations (admin only)
+    /// When paused, all state-modifying functions will fail
+    pub fn pause(env: Env, admin: Address) -> Result<(), PurchaseError> {
+        admin.require_auth();
+        verify_admin(&env, &admin)?;
+
+        let mut config = get_platform_config(&env)?;
+        config.paused = true;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::PlatformConfig, &config);
+
+        // Emit config update event
+        PlatformConfigUpdatedEvent {
+            treasury: config.treasury,
+            platform_fee_bps: config.platform_fee_bps,
+            paused: true,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    /// Unpause contract operations (admin only)
+    /// When unpaused, normal operations resume
+    pub fn unpause(env: Env, admin: Address) -> Result<(), PurchaseError> {
+        admin.require_auth();
+        verify_admin(&env, &admin)?;
+
+        let mut config = get_platform_config(&env)?;
+        config.paused = false;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::PlatformConfig, &config);
+
+        // Emit config update event
+        PlatformConfigUpdatedEvent {
+            treasury: config.treasury,
+            platform_fee_bps: config.platform_fee_bps,
+            paused: false,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
     /// Upgrade contract WASM hash (admin only).
     pub fn upgrade(
         env: Env,

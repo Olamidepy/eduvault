@@ -14,6 +14,7 @@ import {
 	FaStickyNote,
 	FaImage,
 } from "react-icons/fa";
+import ResourceStatusBadge from "@/components/materials/ResourceStatusBadge";
 import { motion } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import BuyNowModal from "./modals/BuyNowModal";
@@ -42,6 +43,15 @@ function getPreviewCounts(material) {
 
 function hasCoverImage(material) {
 	return Boolean(material.coverImageUrl || material.thumbnailUrl || material.image);
+}
+
+function getAverageScore(material) {
+	const score = Number(material.averageScore ?? material.rating);
+	return Number.isFinite(score) && score > 0 ? score.toFixed(1) : "New";
+}
+
+function getFeedbackCount(material) {
+	return Number(material.feedbackCount ?? material.reviewsCount ?? 0) || 0;
 }
 
 function PreviewBlock({ title, emptyLabel, items, icon: Icon }) {
@@ -251,8 +261,8 @@ function PurchaseCard({
 				<PriceLine
 					price={material.price}
 					currency={material.currency}
-					rating={material.rating}
-					reviewsCount={material.reviewsCount}
+					rating={getAverageScore(material)}
+					reviewsCount={getFeedbackCount(material)}
 				/>
 				<AccessStatusPanel
 					status={accessStatus}
@@ -400,6 +410,7 @@ export default function MaterialDetailsPage() {
 									<h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 break-words">
 										{material.title}
 									</h1>
+									<ResourceStatusBadge material={material} className="mt-3" />
 									<p className="mt-3 text-sm sm:text-base text-gray-600 leading-relaxed max-w-3xl break-words">
 										{material.shortSummary || material.description || "Creator preview not shared yet."}
 									</p>
@@ -439,28 +450,28 @@ export default function MaterialDetailsPage() {
 											<h2 id="preview-summary-heading" className="text-base sm:text-lg font-semibold text-gray-900">
 												What you will get
 											</h2>
-										<div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-											<PreviewStat
-												label="Cover image"
-												value={hasCoverImage(material) ? "Provided" : "Missing"}
-												icon={FaImage}
-											/>
-											<PreviewStat
-												label="Learning outcomes"
-												value={`${counts.outcomes} shared`}
-												icon={FaBookOpen}
-											/>
-											<PreviewStat
-												label="Table of contents"
-												value={`${counts.sections} sections`}
-												icon={FaListUl}
-											/>
-											<PreviewStat
-												label="Sample notes"
-												value={`${counts.notes} included`}
-												icon={FaStickyNote}
-											/>
-										</div>
+											<div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+												<PreviewStat
+													label="Cover image"
+													value={hasCoverImage(material) ? "Provided" : "Missing"}
+													icon={FaImage}
+												/>
+												<PreviewStat
+													label="Learning outcomes"
+													value={`${counts.outcomes} shared`}
+													icon={FaBookOpen}
+												/>
+												<PreviewStat
+													label="Table of contents"
+													value={`${counts.sections} sections`}
+													icon={FaListUl}
+												/>
+												<PreviewStat
+													label="Sample notes"
+													value={`${counts.notes} included`}
+													icon={FaStickyNote}
+												/>
+											</div>
 										</section>
 
 										{/* About + Creator */}
@@ -479,6 +490,29 @@ export default function MaterialDetailsPage() {
 												creator={material.creator}
 												createdAt={material.createdAt}
 											/>
+										</div>
+
+										{/* Performance Summary */}
+										<div className="bg-white border border-gray-200 rounded-2xl p-5 sm:p-6 shadow-sm">
+											<h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Performance Summary</h2>
+											<div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+												<div className="rounded-xl bg-blue-50 p-4">
+													<p className="text-[10px] text-gray-500 font-bold tracking-wider uppercase">Views</p>
+													<p className="mt-1 text-2xl font-bold text-blue-600">{material.viewCount || 0}</p>
+												</div>
+												<div className="rounded-xl bg-emerald-50 p-4">
+													<p className="text-[10px] text-gray-500 font-bold tracking-wider uppercase">Saves</p>
+													<p className="mt-1 text-2xl font-bold text-emerald-600">{material.saveCount || 0}</p>
+												</div>
+												<div className="rounded-xl bg-amber-50 p-4">
+													<p className="text-[10px] text-gray-500 font-bold tracking-wider uppercase">Requests</p>
+													<p className="mt-1 text-2xl font-bold text-amber-600">{material.accessCount || 0}</p>
+												</div>
+												<div className="rounded-xl bg-pink-50 p-4">
+													<p className="text-[10px] text-gray-500 font-bold tracking-wider uppercase">Likes</p>
+													<p className="mt-1 text-2xl font-bold text-pink-600">{material.likes || 0}</p>
+												</div>
+											</div>
 										</div>
 
 										{/* Preview blocks */}
@@ -502,7 +536,7 @@ export default function MaterialDetailsPage() {
 												icon={FaStickyNote}
 											/>
 
-											{/* Verification card */}
+											{/* On-chain verification */}
 											<section className="bg-white border border-gray-200 rounded-2xl p-5 sm:p-6 shadow-sm h-full">
 												<h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3">
 													On-chain verification
@@ -525,6 +559,47 @@ export default function MaterialDetailsPage() {
 													)}
 												</p>
 											</section>
+
+											{/* Resource Details */}
+											<div className="bg-white border border-gray-200 rounded-2xl p-5 sm:p-6 shadow-sm h-full">
+												<h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3">
+													Resource Details
+												</h2>
+												<dl className="space-y-3 text-sm">
+													{material.category && (
+														<div className="flex justify-between items-center">
+															<dt className="text-gray-500 font-medium">Category</dt>
+															<dd className="text-gray-800 font-semibold capitalize">{material.category}</dd>
+														</div>
+													)}
+													{material.subject && (
+														<div className="flex justify-between items-center">
+															<dt className="text-gray-500 font-medium">Subject</dt>
+															<dd className="text-gray-800 font-semibold">{material.subject}</dd>
+														</div>
+													)}
+													{material.level && (
+														<div className="flex justify-between items-center">
+															<dt className="text-gray-500 font-medium">Level</dt>
+															<dd className="text-gray-800 font-semibold capitalize">{material.level}</dd>
+														</div>
+													)}
+													<div className="flex justify-between items-center">
+														<dt className="text-gray-500 font-medium">File Type</dt>
+														<dd className="text-gray-800 font-semibold uppercase">{material.fileType || "PDF"}</dd>
+													</div>
+													{material.pages && (
+														<div className="flex justify-between items-center">
+															<dt className="text-gray-500 font-medium">Pages</dt>
+															<dd className="text-gray-800 font-semibold">{material.pages}</dd>
+														</div>
+													)}
+													<div className="flex justify-between items-center">
+														<dt className="text-gray-500 font-medium">Visibility</dt>
+														<dd className="text-gray-800 font-semibold capitalize">{material.visibility || "Public"}</dd>
+													</div>
+												</dl>
+											</div>
 										</div>
 
 										<MaterialReviewPanel
@@ -532,23 +607,24 @@ export default function MaterialDetailsPage() {
 											initialReviews={material.reviews || material.reviewHistory || []}
 											entitlement={entitlementQuery}
 											currentAddress={address}
+											creatorAddress={material.userAddress || material.ownerAddress || material.creatorAddress || material.author?.walletAddress}
 										/>
 									</div>
 
 									{/* RIGHT: sticky purchase card (first on mobile for early CTA visibility) */}
 									<div className="order-1 lg:order-2">
-									<PurchaseCard
-										material={material}
-										accessStatus={accessStatus}
-										entitlementQuery={entitlementQuery}
-										address={address}
-										isOwned={isOwned}
-										isDownloading={isDownloading}
-										downloadError={downloadError}
-										onDownload={handleDownload}
-										onRequestAccess={() => setShowBuyModal(true)}
-										onAddToCart={() => setShowBuyModal(true)}
-									/>
+										<PurchaseCard
+											material={material}
+											accessStatus={accessStatus}
+											entitlementQuery={entitlementQuery}
+											address={address}
+											isOwned={isOwned}
+											isDownloading={isDownloading}
+											downloadError={downloadError}
+											onDownload={handleDownload}
+											onRequestAccess={() => setShowBuyModal(true)}
+											onAddToCart={() => setShowBuyModal(true)}
+										/>
 									</div>
 								</div>
 

@@ -24,11 +24,12 @@ import {
 
 const STEPS = [
   { title: "Welcome", icon: <FaRocket />, num: 1 },
-  { title: "Profile Setup", icon: <FaUser />, num: 2 },
-  { title: "Wallet Connection", icon: <FaWallet />, num: 3 },
-  { title: "Publishing Guide", icon: <FaUpload />, num: 4 },
-  { title: "Creator Attribution", icon: <FaShieldAlt />, num: 5 },
-  { title: "Complete", icon: <FaCheckCircle />, num: 6 },
+  { title: "Account Type", icon: <FaUser />, num: 2 },
+  { title: "Profile Setup", icon: <FaUser />, num: 3 },
+  { title: "Wallet Connection", icon: <FaWallet />, num: 4 },
+  { title: "Publishing Guide", icon: <FaUpload />, num: 5 },
+  { title: "Creator Attribution", icon: <FaShieldAlt />, num: 6 },
+  { title: "Complete", icon: <FaCheckCircle />, num: 7 },
 ];
 
 const containerVariants = {
@@ -39,11 +40,15 @@ const containerVariants = {
 
 export default function OnboardingPage() {
   const [step, setStep] = useState(0);
+  const [accountType, setAccountType] = useState(null);
   const [formData, setFormData] = useState({
     fullName: "",
     bio: "",
     institution: "",
     country: "",
+    institutionName: "",
+    institutionRole: "",
+    institutionSize: "",
   });
   const [formErrors, setFormErrors] = useState({});
 
@@ -54,10 +59,17 @@ export default function OnboardingPage() {
   const isWalletError = state?.status === "error";
 
   const handleNext = () => {
-    if (step === 1) {
+    if (step === 1 && !accountType) {
+      setFormErrors({ accountType: "Please select an account type" });
+      return;
+    }
+    if (step === 2) {
       const errors = {};
       if (!formData.fullName.trim()) {
         errors.fullName = "Full name is required";
+      }
+      if (accountType === "institution" && !formData.institutionName.trim()) {
+        errors.institutionName = "Institution name is required";
       }
       if (Object.keys(errors).length > 0) {
         setFormErrors(errors);
@@ -65,7 +77,7 @@ export default function OnboardingPage() {
       }
       setFormErrors({});
     }
-    if (step < 5) setStep((s) => s + 1);
+    if (step < 6) setStep((s) => s + 1);
   };
 
   const handleBack = () => {
@@ -161,111 +173,285 @@ export default function OnboardingPage() {
                 <FaUser />
               </div>
               <h2 className="text-2xl md:text-3xl font-bold text-gray-900">
-                Tell us about yourself
+                How will you use EduVault?
               </h2>
               <p className="text-gray-500">
-                This information will appear on your public creator profile.
+                We&apos;ll customize your experience based on your role.
               </p>
             </div>
-
-            <div className="space-y-4">
-              <div>
-                <label
-                  htmlFor="fullName"
-                  className="block text-sm font-semibold text-gray-700 mb-1.5"
-                >
-                  Full Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  id="fullName"
-                  name="fullName"
-                  type="text"
-                  value={formData.fullName}
-                  onChange={handleInputChange}
-                  placeholder="Dr. Jane Smith"
-                  aria-required="true"
-                  aria-invalid={!!formErrors.fullName}
-                  aria-describedby={formErrors.fullName ? "fullName-error" : undefined}
-                  className={`w-full px-4 py-3 rounded-xl border bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
-                    formErrors.fullName ? "border-red-400" : "border-gray-200"
+            <div className="space-y-3">
+              {[
+                {
+                  id: "creator",
+                  title: "Individual Creator",
+                  desc: "I publish and sell my own educational materials",
+                },
+                {
+                  id: "institution",
+                  title: "School or Institution",
+                  desc: "We manage cohorts, curriculum, and learner progress",
+                },
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => {
+                    setAccountType(option.id);
+                    setFormErrors({});
+                  }}
+                  className={`w-full text-left p-4 rounded-xl border-2 transition ${
+                    accountType === option.id
+                      ? "border-blue-600 bg-blue-50"
+                      : "border-gray-200 bg-white hover:border-gray-300"
                   }`}
-                />
-                {formErrors.fullName && (
-                  <p id="fullName-error" className="mt-1 text-sm text-red-500 flex items-center gap-1" role="alert">
-                    <FaExclamationCircle className="w-3 h-3" />
-                    {formErrors.fullName}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label
-                  htmlFor="bio"
-                  className="block text-sm font-semibold text-gray-700 mb-1.5"
                 >
-                  Bio
-                </label>
-                <textarea
-                  id="bio"
-                  name="bio"
-                  rows={3}
-                  value={formData.bio}
-                  onChange={handleInputChange}
-                  placeholder="A passionate educator specializing in..."
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition resize-none"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="institution"
-                  className="block text-sm font-semibold text-gray-700 mb-1.5"
-                >
-                  Institution
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                    <FaUniversity className="w-4 h-4" />
-                  </div>
-                  <input
-                    id="institution"
-                    name="institution"
-                    type="text"
-                    value={formData.institution}
-                    onChange={handleInputChange}
-                    placeholder="University of Knowledge"
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="country"
-                  className="block text-sm font-semibold text-gray-700 mb-1.5"
-                >
-                  Country
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                    <FaGlobe className="w-4 h-4" />
-                  </div>
-                  <input
-                    id="country"
-                    name="country"
-                    type="text"
-                    value={formData.country}
-                    onChange={handleInputChange}
-                    placeholder="Nigeria"
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-                  />
-                </div>
-              </div>
+                  <h3 className="font-semibold text-gray-900">
+                    {option.title}
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">{option.desc}</p>
+                </button>
+              ))}
+              {formErrors.accountType && (
+                <p className="text-sm text-red-500 flex items-center gap-1">
+                  <FaExclamationCircle className="w-3 h-3" />
+                  {formErrors.accountType}
+                </p>
+              )}
             </div>
           </div>
         );
 
       case 2:
+        return (
+          <div className="space-y-6 max-w-lg mx-auto">
+            <div className="text-center space-y-2">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 text-blue-600 text-2xl mx-auto">
+                <FaUser />
+              </div>
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900">
+                {accountType === "institution"
+                  ? "Institution Setup"
+                  : "Tell us about yourself"}
+              </h2>
+              <p className="text-gray-500">
+                {accountType === "institution"
+                  ? "Set up your institution profile and team."
+                  : "This information will appear on your public creator profile."}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {accountType === "institution" ? (
+                <>
+                  <div>
+                    <label
+                      htmlFor="institutionName"
+                      className="block text-sm font-semibold text-gray-700 mb-1.5"
+                    >
+                      Institution Name <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                        <FaUniversity className="w-4 h-4" />
+                      </div>
+                      <input
+                        id="institutionName"
+                        name="institutionName"
+                        type="text"
+                        value={formData.institutionName}
+                        onChange={handleInputChange}
+                        placeholder="University of Knowledge"
+                        aria-required="true"
+                        aria-invalid={!!formErrors.institutionName}
+                        className={`w-full pl-10 pr-4 py-3 rounded-xl border bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+                          formErrors.institutionName
+                            ? "border-red-400"
+                            : "border-gray-200"
+                        }`}
+                      />
+                    </div>
+                    {formErrors.institutionName && (
+                      <p className="mt-1 text-sm text-red-500 flex items-center gap-1">
+                        <FaExclamationCircle className="w-3 h-3" />
+                        {formErrors.institutionName}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="institutionRole"
+                      className="block text-sm font-semibold text-gray-700 mb-1.5"
+                    >
+                      Your Role
+                    </label>
+                    <select
+                      id="institutionRole"
+                      name="institutionRole"
+                      value={formData.institutionRole}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                    >
+                      <option value="">Select your role</option>
+                      <option value="admin">Administrator</option>
+                      <option value="teacher">Teacher/Instructor</option>
+                      <option value="cohort">Cohort Manager</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="institutionSize"
+                      className="block text-sm font-semibold text-gray-700 mb-1.5"
+                    >
+                      Institution Size
+                    </label>
+                    <select
+                      id="institutionSize"
+                      name="institutionSize"
+                      value={formData.institutionSize}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                    >
+                      <option value="">Select size</option>
+                      <option value="small">Small (1-50 students)</option>
+                      <option value="medium">Medium (51-500 students)</option>
+                      <option value="large">Large (500+ students)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="country"
+                      className="block text-sm font-semibold text-gray-700 mb-1.5"
+                    >
+                      Country
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                        <FaGlobe className="w-4 h-4" />
+                      </div>
+                      <input
+                        id="country"
+                        name="country"
+                        type="text"
+                        value={formData.country}
+                        onChange={handleInputChange}
+                        placeholder="Nigeria"
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label
+                      htmlFor="fullName"
+                      className="block text-sm font-semibold text-gray-700 mb-1.5"
+                    >
+                      Full Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="fullName"
+                      name="fullName"
+                      type="text"
+                      value={formData.fullName}
+                      onChange={handleInputChange}
+                      placeholder="Dr. Jane Smith"
+                      aria-required="true"
+                      aria-invalid={!!formErrors.fullName}
+                      aria-describedby={
+                        formErrors.fullName ? "fullName-error" : undefined
+                      }
+                      className={`w-full px-4 py-3 rounded-xl border bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+                        formErrors.fullName
+                          ? "border-red-400"
+                          : "border-gray-200"
+                      }`}
+                    />
+                    {formErrors.fullName && (
+                      <p
+                        id="fullName-error"
+                        className="mt-1 text-sm text-red-500 flex items-center gap-1"
+                        role="alert"
+                      >
+                        <FaExclamationCircle className="w-3 h-3" />
+                        {formErrors.fullName}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="bio"
+                      className="block text-sm font-semibold text-gray-700 mb-1.5"
+                    >
+                      Bio
+                    </label>
+                    <textarea
+                      id="bio"
+                      name="bio"
+                      rows={3}
+                      value={formData.bio}
+                      onChange={handleInputChange}
+                      placeholder="A passionate educator specializing in..."
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="institution"
+                      className="block text-sm font-semibold text-gray-700 mb-1.5"
+                    >
+                      Institution (Optional)
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                        <FaUniversity className="w-4 h-4" />
+                      </div>
+                      <input
+                        id="institution"
+                        name="institution"
+                        type="text"
+                        value={formData.institution}
+                        onChange={handleInputChange}
+                        placeholder="University of Knowledge"
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="country"
+                      className="block text-sm font-semibold text-gray-700 mb-1.5"
+                    >
+                      Country
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                        <FaGlobe className="w-4 h-4" />
+                      </div>
+                      <input
+                        id="country"
+                        name="country"
+                        type="text"
+                        value={formData.country}
+                        onChange={handleInputChange}
+                        placeholder="Nigeria"
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+
+      case 3:
         return (
           <div className="space-y-6 max-w-lg mx-auto text-center">
             <div className="space-y-2">
@@ -283,8 +469,8 @@ export default function OnboardingPage() {
               </h2>
               <p className="text-gray-500 leading-relaxed">
                 Link your Stellar wallet to receive payments, sign transactions,
-                and establish immutable creator attribution for every material you
-                publish.
+                and establish immutable creator attribution for every material
+                you publish.
               </p>
             </div>
 
@@ -310,7 +496,10 @@ export default function OnboardingPage() {
                 </div>
               ) : isWalletError ? (
                 <div className="space-y-3">
-                  <div className="text-red-600 bg-red-50 rounded-lg px-4 py-3 text-sm flex items-center gap-2" role="alert">
+                  <div
+                    className="text-red-600 bg-red-50 rounded-lg px-4 py-3 text-sm flex items-center gap-2"
+                    role="alert"
+                  >
                     <FaExclamationCircle className="w-4 h-4 shrink-0" />
                     Wallet connection failed. Please try again.
                   </div>
@@ -331,7 +520,8 @@ export default function OnboardingPage() {
                     Connect Stellar Wallet
                   </button>
                   <p className="text-xs text-gray-400">
-                    Securely sign in with your preferred Stellar wallet provider.
+                    Securely sign in with your preferred Stellar wallet
+                    provider.
                   </p>
                 </div>
               )}
@@ -352,7 +542,7 @@ export default function OnboardingPage() {
           </div>
         );
 
-      case 3:
+      case 4:
         return (
           <div className="space-y-6 max-w-lg mx-auto">
             <div className="text-center space-y-2">
@@ -360,10 +550,13 @@ export default function OnboardingPage() {
                 <FaUpload />
               </div>
               <h2 className="text-2xl md:text-3xl font-bold text-gray-900">
-                Publishing Your Resources
+                {accountType === "institution"
+                  ? "Using the Platform"
+                  : "Publishing Your Resources"}
               </h2>
               <p className="text-gray-500 leading-relaxed">
-                Learn how to publish and manage your educational materials on EduVault.
+                Learn how to publish and manage your educational materials on
+                EduVault.
               </p>
             </div>
 
@@ -372,7 +565,7 @@ export default function OnboardingPage() {
                 {
                   step: "1",
                   title: "Upload Your Material",
-                  desc: "Go to your Dashboard and click \"Upload Material.\" Add a title, description, subject, and attach your file (PDF, DOCX, or PPTX up to 50MB).",
+                  desc: 'Go to your Dashboard and click "Upload Material." Add a title, description, subject, and attach your file (PDF, DOCX, or PPTX up to 50MB).',
                 },
                 {
                   step: "2",
@@ -387,7 +580,7 @@ export default function OnboardingPage() {
                 {
                   step: "4",
                   title: "Manage Listings",
-                  desc: "Edit titles, update prices, or unpublish materials anytime from the \"My Materials\" section in your dashboard.",
+                  desc: 'Edit titles, update prices, or unpublish materials anytime from the "My Materials" section in your dashboard.',
                 },
               ].map((item) => (
                 <div
@@ -411,7 +604,7 @@ export default function OnboardingPage() {
           </div>
         );
 
-      case 4:
+      case 5:
         return (
           <div className="space-y-6 max-w-lg mx-auto text-center">
             <div className="space-y-2">
@@ -419,7 +612,9 @@ export default function OnboardingPage() {
                 <FaShieldAlt />
               </div>
               <h2 className="text-2xl md:text-3xl font-bold text-gray-900">
-                Creator Attribution
+                {accountType === "institution"
+                  ? "Account Security"
+                  : "Creator Attribution"}
               </h2>
               <p className="text-gray-500 leading-relaxed">
                 Every material you upload to EduVault is permanently linked to
@@ -510,7 +705,7 @@ export default function OnboardingPage() {
           </div>
         );
 
-      case 5:
+      case 6:
         return (
           <div className="space-y-6 max-w-lg mx-auto text-center">
             <div className="space-y-3">
@@ -532,15 +727,18 @@ export default function OnboardingPage() {
                 {createProfile.isPending
                   ? "Saving your profile..."
                   : createProfile.isError
-                  ? "Something went wrong"
-                  : "You're all set!"}
+                    ? "Something went wrong"
+                    : "You're all set!"}
               </h2>
               <p className="text-gray-500 leading-relaxed">
                 {createProfile.isPending
-                  ? "Just a moment while we set up your creator account."
+                  ? `Just a moment while we set up your ${accountType === "institution" ? "institution" : "creator"} account.`
                   : createProfile.isError
-                  ? createProfile.error?.message || "Failed to create your profile. Please try again."
-                  : "Your creator profile is ready. Start uploading materials and build your reputation on EduVault."}
+                    ? createProfile.error?.message ||
+                      "Failed to create your profile. Please try again."
+                    : accountType === "institution"
+                      ? "Your institution is ready. Start managing cohorts and materials."
+                      : "Your creator profile is ready. Start uploading materials and build your reputation on EduVault."}
               </p>
             </div>
 
@@ -586,10 +784,18 @@ export default function OnboardingPage() {
     }
   };
 
-  const isLastStep = step === 5;
+  const isLastStep = step === 6;
   const isFirstStep = step === 0;
   const canProceed =
-    step === 2 ? isConnected : step === 1 ? formData.fullName.trim().length > 0 : true;
+    step === 3
+      ? isConnected
+      : step === 2
+        ? accountType === "institution"
+          ? formData.institutionName.trim().length > 0
+          : formData.fullName.trim().length > 0
+        : step === 1
+          ? accountType
+          : true;
 
   return (
     <div className="min-h-screen bg-[#fffaf6]">
@@ -598,7 +804,14 @@ export default function OnboardingPage() {
       <main className="pt-28 pb-16 px-4">
         <div className="max-w-2xl mx-auto">
           {/* Progress indicator */}
-          <div className="mb-10" role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={6} aria-label={`Step ${step + 1} of 6: ${STEPS[step].title}`}>
+          <div
+            className="mb-10"
+            role="progressbar"
+            aria-valuenow={step + 1}
+            aria-valuemin={1}
+            aria-valuemax={6}
+            aria-label={`Step ${step + 1} of 6: ${STEPS[step].title}`}
+          >
             <div className="flex items-center justify-between mb-3">
               {STEPS.map((s, i) => (
                 <div key={i} className="flex items-center">
@@ -618,15 +831,11 @@ export default function OnboardingPage() {
                         i < step
                           ? "bg-blue-600 text-white"
                           : i === step
-                          ? "bg-blue-600 text-white ring-4 ring-blue-100"
-                          : "bg-gray-200 text-gray-400"
+                            ? "bg-blue-600 text-white ring-4 ring-blue-100"
+                            : "bg-gray-200 text-gray-400"
                       }`}
                     >
-                      {i < step ? (
-                        <FaCheckCircle className="w-4 h-4" />
-                      ) : (
-                        s.num
-                      )}
+                      {i < step ? <FaCheckCircle className="w-4 h-4" /> : s.num}
                     </div>
                     <span
                       className={`text-xs font-semibold hidden sm:block ${
@@ -687,19 +896,24 @@ export default function OnboardingPage() {
                 </button>
 
                 <button
-                  onClick={step === 4 ? handleComplete : handleNext}
+                  onClick={step === 5 ? handleComplete : handleNext}
                   disabled={
-                    (step === 2 && !isConnected) ||
-                    (step === 4 && createProfile.isPending)
+                    (step === 3 && !isConnected) ||
+                    (step === 5 && createProfile.isPending) ||
+                    !canProceed
                   }
                   className={`inline-flex items-center gap-1.5 px-6 py-3 rounded-xl text-sm font-semibold transition shadow-sm ${
-                    (step === 2 && !isConnected) || (step === 4 && createProfile.isPending)
+                    (step === 3 && !isConnected) ||
+                    (step === 5 && createProfile.isPending) ||
+                    !canProceed
                       ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                       : "bg-blue-600 text-white hover:bg-blue-700"
                   }`}
-                  aria-label={step === 4 ? "Complete onboarding" : "Go to next step"}
+                  aria-label={
+                    step === 5 ? "Complete onboarding" : "Go to next step"
+                  }
                 >
-                  {step === 4 ? (
+                  {step === 5 ? (
                     createProfile.isPending ? (
                       <>
                         <FaSpinner className="animate-spin w-3.5 h-3.5" />
@@ -710,7 +924,7 @@ export default function OnboardingPage() {
                     )
                   ) : (
                     <>
-                      {step === 2 && !isConnected ? "Connect First" : "Next"}
+                      {step === 3 && !isConnected ? "Connect First" : "Next"}
                       <FaChevronRight className="w-3.5 h-3.5" />
                     </>
                   )}

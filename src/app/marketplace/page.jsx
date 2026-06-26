@@ -1,60 +1,133 @@
-// Marketplace page: supports search, filters, sorting, pagination, and empty/loading/error states.
-// State is reflected in the URL for shareability.
+// Marketplace page: discovery filters are reflected in the URL for shareable searches.
 
 "use client";
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-	FaHeart,
-	FaSearch,
-	FaFilter,
-	FaStar,
-	FaFilePdf,
-	FaFileWord,
-	FaFilePowerpoint,
-	FaRegClock,
-	FaExchangeAlt,
-	FaShoppingCart,
+  FaExchangeAlt,
+  FaFilePdf,
+  FaFilePowerpoint,
+  FaFileWord,
+  FaFilter,
+  FaHeart,
+  FaRegClock,
+  FaSearch,
+  FaShoppingCart,
+  FaStar,
 } from "react-icons/fa";
 import { motion } from "framer-motion";
 
 import Navbar from "@/components/Navbar";
 import SaveMaterialButton from "@/components/materials/SaveMaterialButton";
-
 import RecentlyViewedMaterials from "@/components/materials/RecentlyViewedMaterials";
-
-import { useRouter } from "next/navigation";
+import ResourceStatusBadge from "@/components/materials/ResourceStatusBadge";
 import { useMarketplaceMaterials } from "@/hooks/api/useMaterials";
 import { useCart } from "@/hooks/useCart";
 import { useComparison } from "@/hooks/useComparison";
 
 export const dynamic = "force-dynamic";
 
+const ALL_SUBJECT = { id: "all", label: "All" };
+
+const DEFAULT_SUBJECTS = [
+  ALL_SUBJECT,
+  { id: "mathematics", label: "Math" },
+  { id: "science", label: "Science" },
+  { id: "law", label: "Law" },
+  { id: "technology", label: "Technology" },
+  { id: "business", label: "Business" },
+  { id: "medicine", label: "Medicine" },
+  { id: "arts", label: "Arts" },
+];
+
+const LEVEL_OPTIONS = [
+  { id: "", label: "Any level" },
+  { id: "beginner", label: "Beginner" },
+  { id: "intermediate", label: "Intermediate" },
+  { id: "advanced", label: "Advanced" },
+  { id: "all-levels", label: "All Levels" },
+];
+
+const CONTENT_TYPE_OPTIONS = [
+  { id: "", label: "Any type" },
+  { id: "pdf", label: "PDF" },
+  { id: "word", label: "Word" },
+  { id: "presentation", label: "Presentation" },
+  { id: "spreadsheet", label: "Spreadsheet" },
+  { id: "text", label: "Text" },
+  { id: "zip", label: "ZIP" },
+];
+
+const LICENSE_OPTIONS = [
+  { id: "", label: "Any license" },
+  { id: "standard", label: "Standard License", value: "Standard License (download only)" },
+  { id: "creative-commons", label: "Creative Commons", value: "Creative Commons" },
+  { id: "private-use", label: "Private Use Only", value: "Private Use Only" },
+];
+
+const RATING_OPTIONS = [
+  { id: "", label: "Any rating" },
+  { id: "4", label: "4+ stars" },
+  { id: "3", label: "3+ stars" },
+  { id: "2", label: "2+ stars" },
+  { id: "1", label: "1+ star" },
+];
+
+const NEWEST_OPTIONS = [
+  { id: "", label: "Any date" },
+  { id: "7d", label: "Last 7 days" },
+  { id: "30d", label: "Last 30 days" },
+  { id: "90d", label: "Last 90 days" },
+];
+
+const SORT_OPTIONS = [
+  { id: "newest", label: "Newest first" },
+  { id: "popular", label: "Popular" },
+  { id: "rating_desc", label: "Highest rated" },
+  { id: "price_asc", label: "Price: Low to High" },
+  { id: "price_desc", label: "Price: High to Low" },
+];
+
 function getPreviewImage(material) {
-	return (
-		material.coverImageUrl ||
-		material.thumbnailUrl ||
-		material.image ||
-		"/images/image1.jpg"
-	);
+  return material.coverImageUrl || material.thumbnailUrl || material.image || "/images/image1.jpg";
 }
 
-function getPreviewCounts(material) {
-	return {
-		outcomes: Array.isArray(material.learningOutcomes)
-			? material.learningOutcomes.length
-			: 0,
+function normalizeSubjectOptions(subjects) {
+  if (!Array.isArray(subjects) || subjects.length === 0) return DEFAULT_SUBJECTS;
 
-		sections: Array.isArray(material.tableOfContents)
-			? material.tableOfContents.length
-			: 0,
+  const seen = new Set(["all"]);
+  const normalized = subjects
+    .map((subject) => {
+      if (typeof subject === "string") {
+        return subject.toLowerCase() === "all" ? ALL_SUBJECT : { id: subject, label: subject };
+      }
 
-		notes: Array.isArray(material.sampleNotes)
-			? material.sampleNotes.length
-			: 0,
-	};
+      return {
+        id: subject?.id || subject?.label,
+        label: subject?.label || subject?.id,
+      };
+    })
+    .filter((subject) => subject.id && subject.label)
+    .filter((subject) => {
+      const key = subject.id.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+  return [ALL_SUBJECT, ...normalized];
+}
+
+function getAverageScore(material) {
+	const score = Number(material.averageScore ?? material.rating);
+	return Number.isFinite(score) && score > 0 ? score.toFixed(1) : "New";
+}
+
+function getFeedbackCount(material) {
+	return Number(material.feedbackCount ?? material.reviewsCount ?? 0) || 0;
 }
 
 export default function MarketPage() {
@@ -65,6 +138,7 @@ export default function MarketPage() {
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const [activeSubject, setActiveSubject] = useState("All");
+	const [activeCategory, setActiveCategory] = useState("All");
 	const [sortBy, setSortBy] = useState("Popular");
 
 	const [minPrice, setMinPrice] = useState("");
@@ -78,6 +152,7 @@ export default function MarketPage() {
 	const [hydrated, setHydrated] = useState(false);
 
 	const [subjects, setSubjects] = useState(["All"]);
+	const [categories, setCategories] = useState([]);
 	const [subjectsLoading, setSubjectsLoading] = useState(true);
 
 	const itemsPerPage = 12;
@@ -88,6 +163,7 @@ export default function MarketPage() {
 
 		setSearchQuery(params.get("search") || "");
 		setActiveSubject(params.get("subject") || "All");
+		setActiveCategory(params.get("category") || "All");
 		setSortBy(params.get("sortBy") || "Popular");
 
 		setMinPrice(params.get("minPrice") || "");
@@ -111,22 +187,12 @@ export default function MarketPage() {
 
 				if (res.ok) {
 					const data = await res.json();
-
-					setSubjects(data.subjects || ["All"]);
+					const normalized = normalizeSubjectOptions(data.subjects || data);
+					setSubjects(normalized.map((s) => s.label || s.id || String(s)));
+					setCategories(data.categories || []);
 				}
-			} catch (err) {
-				console.error("Failed to load subjects:", err);
-
-				setSubjects([
-					"All",
-					"Math",
-					"Science",
-					"Law",
-					"Technology",
-					"Business",
-					"Medicine",
-					"Arts",
-				]);
+			} catch {
+				// keep default subjects on error
 			} finally {
 				setSubjectsLoading(false);
 			}
@@ -135,28 +201,19 @@ export default function MarketPage() {
 		loadSubjects();
 	}, []);
 
-	// Sync filters to URL
+	// Sync filter state to URL for shareable links
 	useEffect(() => {
 		if (!hydrated) return;
 
 		const params = new URLSearchParams();
 
 		if (searchQuery) params.set("search", searchQuery);
-
-		if (activeSubject !== "All") {
-			params.set("subject", activeSubject);
-		}
-
-		if (sortBy !== "Popular") {
-			params.set("sortBy", sortBy);
-		}
-
+		if (activeSubject && activeSubject !== "All") params.set("subject", activeSubject);
+		if (activeCategory !== "All") params.set("category", activeCategory);
+		if (sortBy && sortBy !== "Popular") params.set("sortBy", sortBy);
 		if (minPrice) params.set("minPrice", minPrice);
-
 		if (maxPrice) params.set("maxPrice", maxPrice);
-
 		if (creator) params.set("creator", creator);
-
 		if (usageRights) params.set("usageRights", usageRights);
 
 		if (currentPage > 1) {
@@ -168,6 +225,7 @@ export default function MarketPage() {
 		hydrated,
 		searchQuery,
 		activeSubject,
+		activeCategory,
 		sortBy,
 		minPrice,
 		maxPrice,
@@ -186,6 +244,11 @@ export default function MarketPage() {
 					? activeSubject
 					: undefined,
 
+			category:
+				activeCategory !== "All"
+					? activeCategory
+					: undefined,
+
 			sortBy:
 				sortBy === "Popular"
 					? "popular"
@@ -193,6 +256,10 @@ export default function MarketPage() {
 					? "price_asc"
 					: sortBy === "Price: High to Low"
 					? "price_desc"
+					: sortBy === "Newest"
+					? "newest"
+					: sortBy === "Top Rated"
+					? "top_rated"
 					: undefined,
 
 			minPrice: minPrice || undefined,
@@ -230,6 +297,7 @@ export default function MarketPage() {
 	const resetFilters = () => {
 		setSearchQuery("");
 		setActiveSubject("All");
+		setActiveCategory("All");
 		setSortBy("Popular");
 
 		setMinPrice("");
@@ -246,33 +314,57 @@ export default function MarketPage() {
 			<Navbar />
 
 			<section className="flex flex-col lg:flex-row min-h-screen bg-[#fffaf6]">
-				{/* Mobile Subjects */}
-				<nav aria-label="Subject filters" className="lg:hidden w-full overflow-x-auto bg-white border-b border-gray-200 px-4 py-3 hide-scrollbar flex gap-2">
-					{subjectsLoading ? (
-						<div className="px-4 py-1.5 text-sm text-gray-500">
-							Loading subjects...
-						</div>
-					) : (
-						subjects.map((subject) => (
-							<button
-								key={subject}
-								onClick={() => {
-									setActiveSubject(subject);
-									setCurrentPage(1);
-								}}
-								role="tab"
-								aria-selected={activeSubject === subject}
-								className={`whitespace-nowrap px-4 py-1.5 rounded-full text-sm transition-all focus-visible:ring-2 focus-visible:ring-blue-500 ${
-									activeSubject === subject
-										? "bg-blue-600 text-white font-medium shadow-sm"
-										: "bg-gray-100 text-gray-600 hover:bg-gray-200"
-								}`}
-							>
-								{subject}
-							</button>
-						))
+				{/* Mobile Subjects + Categories */}
+				<div className="lg:hidden w-full bg-white border-b border-gray-200">
+					<nav aria-label="Subject filters" className="overflow-x-auto px-4 py-3 hide-scrollbar flex gap-2">
+						{subjectsLoading ? (
+							<div className="px-4 py-1.5 text-sm text-gray-500">
+								Loading subjects...
+							</div>
+						) : (
+							subjects.map((subject) => (
+								<button
+									key={subject}
+									onClick={() => {
+										setActiveSubject(subject);
+										setCurrentPage(1);
+									}}
+									role="tab"
+									aria-selected={activeSubject === subject}
+									className={`whitespace-nowrap px-4 py-1.5 rounded-full text-sm transition-all focus-visible:ring-2 focus-visible:ring-blue-500 ${
+										activeSubject === subject
+											? "bg-blue-600 text-white font-medium shadow-sm"
+											: "bg-gray-100 text-gray-600 hover:bg-gray-200"
+									}`}
+								>
+									{subject}
+								</button>
+							))
+						)}
+					</nav>
+					{categories.length > 0 && (
+						<nav aria-label="Category filters" className="overflow-x-auto px-4 pb-3 hide-scrollbar flex gap-2">
+							{[{ id: "All", label: "All" }, ...categories].map((cat) => (
+								<button
+									key={cat.id}
+									onClick={() => {
+										setActiveCategory(cat.id);
+										setCurrentPage(1);
+									}}
+									role="tab"
+									aria-selected={activeCategory === cat.id}
+									className={`whitespace-nowrap px-3 py-1 rounded-full text-xs transition-all focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+										activeCategory === cat.id
+											? "bg-indigo-600 text-white font-medium shadow-sm"
+											: "bg-gray-100 text-gray-600 hover:bg-gray-200"
+									}`}
+								>
+									{cat.label}
+								</button>
+							))}
+						</nav>
 					)}
-				</nav>
+				</div>
 
 				{/* Sidebar */}
 				<aside className="hidden lg:block w-72 bg-white border-r border-gray-200 px-6 py-10 sticky top-0 h-screen overflow-y-auto">
@@ -311,6 +403,35 @@ export default function MarketPage() {
 						)}
 					</ul>
 					</nav>
+
+					{categories.length > 0 && (
+						<nav aria-label="Category filters" className="mt-8">
+							<h3 className="text-sm font-bold text-gray-900 mb-6 uppercase tracking-wider">
+								Categories
+							</h3>
+							<ul role="list" className="space-y-1">
+								{[{ id: "All", label: "All Categories" }, ...categories].map((cat) => (
+									<li key={cat.id} role="listitem">
+										<button
+											onClick={() => {
+												setActiveCategory(cat.id);
+												setCurrentPage(1);
+											}}
+											role="tab"
+											aria-selected={activeCategory === cat.id}
+											className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all focus-visible:ring-2 focus-visible:ring-blue-500 ${
+												activeCategory === cat.id
+													? "bg-indigo-50 text-indigo-700 font-semibold"
+													: "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+											}`}
+										>
+											{cat.label}
+										</button>
+									</li>
+								))}
+							</ul>
+						</nav>
+					)}
 				</aside>
 
 				{/* Main */}
@@ -412,6 +533,8 @@ export default function MarketPage() {
 									<option>
 										Price: High to Low
 									</option>
+									<option>Newest</option>
+									<option>Top Rated</option>
 								</select>
 							</div>
 						</div>
@@ -441,17 +564,52 @@ export default function MarketPage() {
 							</p>
 						</div>
 					) : materials.length === 0 ? (
-						<div aria-live="polite" className="bg-white rounded-2xl border border-gray-200 py-20 px-6 text-center shadow-sm">
-							<h3 className="text-lg font-bold text-gray-900 mb-2">
+						<div aria-live="polite" className="bg-white rounded-2xl border border-gray-200 py-12 px-6 text-center shadow-sm">
+							<h3 className="text-lg font-bold text-gray-900 mb-3">
 								No materials found
 							</h3>
-
+							<p className="text-gray-600 mb-6 max-w-md mx-auto">
+								{searchQuery
+									? `No results for "${searchQuery}". Try different keywords or browse by subject.`
+									: "Try adjusting your filters to find what you're looking for."}
+							</p>
+							<div className="flex flex-col sm:flex-row gap-3 justify-center">
 								<button
 									onClick={resetFilters}
-									className="text-blue-600 font-medium text-sm hover:underline focus-visible:ring-2 focus-visible:ring-blue-500"
+									className="inline-flex items-center justify-center px-5 py-2.5 bg-blue-600 text-white font-medium text-sm rounded-lg hover:bg-blue-700 transition"
 								>
 									Clear all filters
 								</button>
+								<button
+									onClick={() => {
+										setSearchQuery("");
+										setCurrentPage(1);
+									}}
+									className="inline-flex items-center justify-center px-5 py-2.5 border border-gray-200 text-gray-700 font-medium text-sm rounded-lg hover:bg-gray-50 transition"
+								>
+									Browse all materials
+								</button>
+							</div>
+							{searchQuery && (
+								<div className="mt-8 border-t border-gray-200 pt-6">
+									<p className="text-sm text-gray-500 mb-4">Try searching for:</p>
+									<div className="flex flex-wrap gap-2 justify-center">
+										{["Math", "Science", "Technology", "Business"].map((subject) => (
+											<button
+												key={subject}
+												onClick={() => {
+													setSearchQuery(subject.toLowerCase());
+													setActiveSubject(subject);
+													setCurrentPage(1);
+												}}
+												className="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs font-medium rounded-full hover:bg-blue-100 transition"
+											>
+												{subject}
+											</button>
+										))}
+									</div>
+								</div>
+							)}
 						</div>
 					) : (
 						<>
@@ -558,6 +716,8 @@ export default function MarketPage() {
 													</Link>
 												</p>
 
+												<ResourceStatusBadge material={material} max={3} />
+
 												<p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
 													{material.shortSummary ||
 														material.description ||
@@ -569,7 +729,10 @@ export default function MarketPage() {
 														<div className="flex items-center gap-1">
 															<FaStar className="text-yellow-400 w-3.5 h-3.5" />
 															<span className="text-xs font-semibold text-gray-700">
-																{material.rating || "4.8"}
+																{getAverageScore(material)}
+															</span>
+															<span className="text-[11px] text-gray-400">
+																({getFeedbackCount(material)})
 															</span>
 														</div>
 

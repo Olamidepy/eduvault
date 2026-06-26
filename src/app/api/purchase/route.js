@@ -9,6 +9,7 @@ import {
   isCompletedPurchaseStatus,
   normalizeBuyerAddress,
 } from "@/lib/purchases/access";
+import { broadcastPurchaseEvent } from '@/lib/webhooks/sender';
 
 export async function GET(req) {
   try {
@@ -58,13 +59,11 @@ export async function POST(req) {
       .collection('purchases')
       .findOne({ buyerAddress, materialId });
     if (existing) {
-      // Ensure entitlement cache is populated on re-purchase attempt
-      await createEntitlement(materialId, buyerAddress, {
-        purchaseId: String(existing._id),
-        transactionHash: existing.transactionHash,
-      });
-
       if (isCompletedPurchaseStatus(existing.status)) {
+        await createEntitlement(materialId, buyerAddress, {
+          purchaseId: String(existing._id),
+          transactionHash: existing.transactionHash,
+        });
         const access = await getMaterialAccessStatus(db, materialId, buyerAddress);
         return NextResponse.json(
           { message: 'Already purchased', purchase: existing, access, transactionHash: existing.transactionHash },
@@ -100,6 +99,17 @@ export async function POST(req) {
 
       const purchase = await db.collection('purchases').findOne({ _id: existing._id });
       const access = await getMaterialAccessStatus(db, materialId, buyerAddress);
+
+      if (paymentCompleted) {
+        // Fire webhook asynchronously
+        broadcastPurchaseEvent(materialId, {
+          buyerAddress,
+          amount: amount ?? existing.amount,
+          asset: asset || existing.asset,
+          transactionHash: transactionHash || existing.transactionHash
+        });
+      }
+
       return NextResponse.json(
         { success: true, purchaseId: existing._id, purchase, access, transactionHash: purchase?.transactionHash },
         { status: 200 }
@@ -126,12 +136,15 @@ export async function POST(req) {
     const result = await db.collection('purchases').insertOne(purchaseRecord);
     const access = await getMaterialAccessStatus(db, materialId, buyerAddress);
 
-    // Create entitlement record immediately so access is available without
-    // waiting for the off-chain indexer to process the on-chain event.
-    await createEntitlement(materialId, buyerAddress, {
-      purchaseId: String(result.insertedId),
-      transactionHash: transactionHash || null,
-    });
+    if (paymentCompleted) {
+      await createEntitlement(materialId, buyerAddress, {
+        purchaseId: String(result.insertedId),
+        transactionHash: transactionHash || null,
+      });
+
+      // Fire webhook asynchronously
+      broadcastPurchaseEvent(materialId, purchaseRecord);
+    }
 
     return NextResponse.json(
       { success: paymentCompleted, purchaseId: result.insertedId, purchase: { ...purchaseRecord, _id: result.insertedId }, access },
