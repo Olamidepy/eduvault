@@ -1,4 +1,7 @@
 // Marketplace page: discovery filters are reflected in the URL for shareable searches.
+// PERF-AUDIT: See docs/tasks/marketplace-performance-audit.md for full findings.
+// Slow components: force-dynamic SSR bypass, eager RecentlyViewedMaterials load,
+// per-mount /api/subjects fetch, framer-motion on every card, no Suspense boundaries.
 
 "use client";
 
@@ -177,6 +180,42 @@ export default function MarketPage() {
 		setCurrentPage(Number(params.get("page") || 1));
 
 		setHydrated(true);
+	}, []);
+
+	// PERF-AUDIT: Measure initial load time using Navigation Timing API.
+	// Logs are only emitted in development so they don't reach production.
+	useEffect(() => {
+		if (typeof window === "undefined" || typeof performance === "undefined") return;
+		if (process.env.NODE_ENV !== "development") return;
+
+		const report = () => {
+			try {
+				const [navEntry] = performance.getEntriesByType("navigation");
+				if (navEntry) {
+					console.group("[Perf Audit] /marketplace initial load");
+					console.log(`TTFB:            ${navEntry.responseStart.toFixed(0)} ms`);
+					console.log(`DOM Interactive: ${navEntry.domInteractive.toFixed(0)} ms`);
+					console.log(`DOM Complete:    ${navEntry.domComplete.toFixed(0)} ms`);
+					console.log(`Load Event End:  ${navEntry.loadEventEnd.toFixed(0)} ms`);
+					console.groupEnd();
+				}
+				// Also report any long tasks if PerformanceObserver is available
+				const longTaskEntries = performance.getEntriesByType("longtask");
+				if (longTaskEntries.length > 0) {
+					console.warn(`[Perf Audit] ${longTaskEntries.length} long task(s) detected on /marketplace:`,
+						longTaskEntries.map(e => `${e.name} — ${e.duration.toFixed(0)} ms`));
+				}
+			} catch {
+				// Performance API not fully available in this environment
+			}
+		};
+
+		// Wait for load event to complete before reading navigation entries
+		if (document.readyState === "complete") {
+			report();
+		} else {
+			window.addEventListener("load", report, { once: true });
+		}
 	}, []);
 
 	// Load subjects
