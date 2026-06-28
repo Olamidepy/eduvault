@@ -32,6 +32,9 @@ export default function UploadForm() {
   const [price, setPrice] = useState("");
   const [usageRights, setUsageRights] = useState("Standard License (download only)");
   const [visibility, setVisibility] = useState("public");
+  const [level, setLevel] = useState("");
+
+  const [savedUploadData, setSavedUploadData] = useState(null);
 
   const [docFile, setDocFile] = useState(null);
   const [docFileName, setDocFileName] = useState(null);
@@ -140,30 +143,34 @@ export default function UploadForm() {
         message: "Uploading files and creating the on-chain record.",
       });
 
-      const formData = new FormData();
-      formData.append("file", docFile);
-      if (thumbFile && thumbPreview && croppedPixels) {
-        const croppedBlob = await getCroppedImageBlob(
-          thumbPreview,
-          croppedPixels,
-          thumbFile.type || "image/jpeg",
-        );
-        formData.append("thumbnail", croppedBlob, `thumb-cropped.${thumbFile.type?.split("/")[1] || "jpg"}`);
-      } else if (thumbFile) {
-        formData.append("thumbnail", thumbFile);
-      }
-      formData.append("name", title);
-      formData.append("description", description);
-      formData.append("price", price);
-      formData.append("usageRights", usageRights);
-      formData.append("visibility", visibility);
-      formData.append("owner", address);
+      let uploadData = savedUploadData;
+      if (!uploadData) {
+        const formData = new FormData();
+        formData.append("file", docFile);
+        if (thumbFile && thumbPreview && croppedPixels) {
+          const croppedBlob = await getCroppedImageBlob(
+            thumbPreview,
+            croppedPixels,
+            thumbFile.type || "image/jpeg",
+          );
+          formData.append("thumbnail", croppedBlob, `thumb-cropped.${thumbFile.type?.split("/")[1] || "jpg"}`);
+        } else if (thumbFile) {
+          formData.append("thumbnail", thumbFile);
+        }
+        formData.append("name", title);
+        formData.append("description", description);
+        formData.append("price", price);
+        formData.append("usageRights", usageRights);
+        formData.append("visibility", visibility);
+        formData.append("owner", address);
 
-      // 1. Upload to Pinata
-      const uploadData = await uploadFileMutation.mutateAsync(formData);
+        // 1. Upload to Pinata
+        uploadData = await uploadFileMutation.mutateAsync(formData);
 
-      if (!uploadData?.metadata) {
-        throw new Error("File upload failed");
+        if (!uploadData?.metadata) {
+          throw new Error("File upload failed");
+        }
+        setSavedUploadData(uploadData);
       }
 
       markStatus(TransactionStatus.PendingConfirmation, {
@@ -178,6 +185,7 @@ export default function UploadForm() {
         price,
         usageRights,
         visibility,
+        level: level || undefined,
         storageKey: uploadData.storageKey,
         thumbnail: uploadData.image,
         metadataUrl: uploadData.metadata,
@@ -196,6 +204,7 @@ export default function UploadForm() {
       setTitle("");
       setDescription("");
       setPrice("");
+      setLevel("");
       setDocFile(null);
       setDocFileName(null);
       setThumbFile(null);
@@ -204,6 +213,7 @@ export default function UploadForm() {
       setThumbCrop({ x: 0, y: 0 });
       setThumbZoom(1);
       setCroppedPixels(null);
+      setSavedUploadData(null);
     } catch (err) {
       console.error("Upload Error:", err);
       setError(err?.message || "Something went wrong. Please try again.");
@@ -386,7 +396,7 @@ export default function UploadForm() {
         )}
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-4 mb-5">
+      <div className="grid sm:grid-cols-3 gap-4 mb-5">
         <div>
           <label className="block text-sm font-medium mb-2">Set Your Price (optional)</label>
           <input
@@ -413,6 +423,20 @@ export default function UploadForm() {
             <option>Standard License (download only)</option>
             <option>Creative Commons</option>
             <option>Private Use Only</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-2">Level</label>
+          <select
+            value={level}
+            onChange={(e) => setLevel(e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+          >
+            <option value="">Select Level</option>
+            <option value="beginner">Beginner</option>
+            <option value="intermediate">Intermediate</option>
+            <option value="advanced">Advanced</option>
+            <option value="all-levels">All Levels</option>
           </select>
         </div>
       </div>
@@ -466,7 +490,9 @@ export default function UploadForm() {
             ? "Awaiting confirmation..."
             : submitting
               ? "Processing..."
-              : "Submit Upload"}
+              : savedUploadData
+                ? "Retry Publishing"
+                : "Submit Upload"}
         </button>
       </div>
     </form>

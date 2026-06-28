@@ -5,6 +5,7 @@ import { getUserFromCookie } from "@/lib/api/auth";
 import { applyTaxToCheckout } from '@/lib/checkout/taxEstimator';
 import { getDb } from '@/lib/mongodb';
 import { findMaterial, verifyDiscount } from '@/lib/checkout/discountVerifier';
+import { checkBuyerTrustline } from '@/lib/stellar/horizonClient';
 
 /**
  * POST /api/checkout/initiate
@@ -50,6 +51,19 @@ export async function POST(req) {
         const discountPercent = discountResult.discountAmountPercent || 0;
         finalBaseAmount = basePrice * (1 - discountPercent / 100);
       }
+    const buyerAddress = user.walletAddress || user.address || user.id;
+
+    // Verify buyer holds an active trustline for the payment asset
+    const assetCode = typeof asset === 'string' ? asset : asset.code || asset;
+    const issuerAddress = typeof asset === 'object' ? asset.issuer : undefined;
+    const trustlineCheck = await checkBuyerTrustline(buyerAddress, assetCode, issuerAddress);
+
+    if (!trustlineCheck.hasTrustline) {
+      return NextResponse.json({
+        error: 'missing_trustline',
+        message: trustlineCheck.instructions.message,
+        instructions: trustlineCheck.instructions,
+      }, { status: 400 });
     }
 
     // Get buyer IP from request if not provided
@@ -62,7 +76,7 @@ export async function POST(req) {
       asset,
       buyerIp: ipAddress,
       buyerCountry,
-      buyerAddress: user.walletAddress || user.address || user.id,
+      buyerAddress,
     });
 
     // Store checkout intent in database for later processing
@@ -74,6 +88,8 @@ export async function POST(req) {
       discountCode: discountCode || null,
       discountPercentage: verifiedDiscount ? (verifiedDiscount.percentage || 0) : 0,
       discountAmount: basePrice - finalBaseAmount,
+      buyerAddress,
+      originalAmount: amount,
       taxAmount: checkoutWithTax.taxAmount,
       taxRateBps: checkoutWithTax.taxRateBps,
       totalAmount: checkoutWithTax.totalAmount,

@@ -1,4 +1,7 @@
 // Marketplace page: discovery filters are reflected in the URL for shareable searches.
+// PERF-AUDIT: See docs/tasks/marketplace-performance-audit.md for full findings.
+// Slow components: force-dynamic SSR bypass, eager RecentlyViewedMaterials load,
+// per-mount /api/subjects fetch, framer-motion on every card, no Suspense boundaries.
 
 "use client";
 
@@ -139,6 +142,7 @@ export default function MarketPage() {
 	const [searchQuery, setSearchQuery] = useState("");
 	const [activeSubject, setActiveSubject] = useState("All");
 	const [activeCategory, setActiveCategory] = useState("All");
+	const [activeLevel, setActiveLevel] = useState("");
 	const [sortBy, setSortBy] = useState("Popular");
 
 	const [minPrice, setMinPrice] = useState("");
@@ -164,6 +168,7 @@ export default function MarketPage() {
 		setSearchQuery(params.get("search") || "");
 		setActiveSubject(params.get("subject") || "All");
 		setActiveCategory(params.get("category") || "All");
+		setActiveLevel(params.get("level") || "");
 		setSortBy(params.get("sortBy") || "Popular");
 
 		setMinPrice(params.get("minPrice") || "");
@@ -175,6 +180,42 @@ export default function MarketPage() {
 		setCurrentPage(Number(params.get("page") || 1));
 
 		setHydrated(true);
+	}, []);
+
+	// PERF-AUDIT: Measure initial load time using Navigation Timing API.
+	// Logs are only emitted in development so they don't reach production.
+	useEffect(() => {
+		if (typeof window === "undefined" || typeof performance === "undefined") return;
+		if (process.env.NODE_ENV !== "development") return;
+
+		const report = () => {
+			try {
+				const [navEntry] = performance.getEntriesByType("navigation");
+				if (navEntry) {
+					console.group("[Perf Audit] /marketplace initial load");
+					console.log(`TTFB:            ${navEntry.responseStart.toFixed(0)} ms`);
+					console.log(`DOM Interactive: ${navEntry.domInteractive.toFixed(0)} ms`);
+					console.log(`DOM Complete:    ${navEntry.domComplete.toFixed(0)} ms`);
+					console.log(`Load Event End:  ${navEntry.loadEventEnd.toFixed(0)} ms`);
+					console.groupEnd();
+				}
+				// Also report any long tasks if PerformanceObserver is available
+				const longTaskEntries = performance.getEntriesByType("longtask");
+				if (longTaskEntries.length > 0) {
+					console.warn(`[Perf Audit] ${longTaskEntries.length} long task(s) detected on /marketplace:`,
+						longTaskEntries.map(e => `${e.name} — ${e.duration.toFixed(0)} ms`));
+				}
+			} catch {
+				// Performance API not fully available in this environment
+			}
+		};
+
+		// Wait for load event to complete before reading navigation entries
+		if (document.readyState === "complete") {
+			report();
+		} else {
+			window.addEventListener("load", report, { once: true });
+		}
 	}, []);
 
 	// Load subjects
@@ -210,6 +251,7 @@ export default function MarketPage() {
 		if (searchQuery) params.set("search", searchQuery);
 		if (activeSubject && activeSubject !== "All") params.set("subject", activeSubject);
 		if (activeCategory !== "All") params.set("category", activeCategory);
+		if (activeLevel) params.set("level", activeLevel);
 		if (sortBy && sortBy !== "Popular") params.set("sortBy", sortBy);
 		if (minPrice) params.set("minPrice", minPrice);
 		if (maxPrice) params.set("maxPrice", maxPrice);
@@ -226,6 +268,7 @@ export default function MarketPage() {
 		searchQuery,
 		activeSubject,
 		activeCategory,
+		activeLevel,
 		sortBy,
 		minPrice,
 		maxPrice,
@@ -248,6 +291,8 @@ export default function MarketPage() {
 				activeCategory !== "All"
 					? activeCategory
 					: undefined,
+
+			level: activeLevel || undefined,
 
 			sortBy:
 				sortBy === "Popular"
@@ -298,6 +343,7 @@ export default function MarketPage() {
 		setSearchQuery("");
 		setActiveSubject("All");
 		setActiveCategory("All");
+		setActiveLevel("");
 		setSortBy("Popular");
 
 		setMinPrice("");
@@ -511,6 +557,29 @@ export default function MarketPage() {
 								</select>
 							</div>
 
+							<div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 hidden md:flex">
+								<span className="text-gray-500 text-sm mr-2">
+									Level:
+								</span>
+
+										<select
+											value={activeLevel}
+											onChange={(e) => {
+												setActiveLevel(
+													e.target.value
+												);
+
+												setCurrentPage(1);
+											}}
+											aria-label="Filter by level"
+											className="bg-transparent text-sm focus-visible:ring-2 focus-visible:ring-blue-500"
+								>
+									{LEVEL_OPTIONS.map((opt) => (
+										<option key={opt.id} value={opt.id}>{opt.label}</option>
+									))}
+								</select>
+							</div>
+
 							<div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
 								<span className="text-gray-500 text-sm mr-2">
 									Sort:
@@ -690,6 +759,11 @@ export default function MarketPage() {
 												{material.subject && (
 													<span className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm text-gray-700 font-semibold text-[10px] px-2 py-0.5 rounded-md border border-gray-200 shadow-sm">
 														{material.subject}
+													</span>
+												)}
+												{material.level && (
+													<span className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm text-blue-700 font-semibold text-[10px] px-2 py-0.5 rounded-md border border-blue-200 shadow-sm">
+														{LEVEL_OPTIONS.find(l => l.id === material.level)?.label || material.level}
 													</span>
 												)}
 											</Link>

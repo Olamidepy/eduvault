@@ -3,6 +3,7 @@ import { auditLog } from '@/lib/api/audit'
 import { withApiHardening } from '@/lib/api/hardening'
 import { normalizeStringList, sanitizeObject, validateUploadPayload, validateUploadFileMetadata } from '@/lib/api/validation'
 import { pinata } from '@/lib/pinata'
+import { getDb } from '@/lib/mongodb'
 
 export const dynamic = 'force-dynamic'
 
@@ -259,10 +260,53 @@ export async function POST(request) {
           status: 500,
           reason: err.message,
         })
-        return NextResponse.json(
-          { error: err.message || 'Upload failed' },
-          { status: 500 }
-        )
+        
+        // Fallback: save to MongoDB pending_pins
+        try {
+          const db = await getDb()
+          const pendingCollection = db.collection('pending_pins')
+          
+          const form = await request.clone().formData().catch(() => null);
+          if (!form) throw new Error("Could not clone form data");
+
+          const file = form.get('file')
+          const image = form.get('thumbnail')
+          
+          const fileBuffer = Buffer.from(await file.arrayBuffer())
+          let imageBuffer = null
+          if (image) {
+            imageBuffer = Buffer.from(await image.arrayBuffer())
+          }
+          
+          const otherFields = {}
+          for (const [key, value] of form.entries()) {
+            if (key !== 'file' && key !== 'thumbnail') {
+              otherFields[key] = value
+            }
+          }
+
+          await pendingCollection.insertOne({
+            status: 'pending',
+            createdAt: new Date(),
+            fileData: fileBuffer,
+            fileType: file?.type,
+            fileName: file?.name,
+            imageData: imageBuffer,
+            imageType: image?.type,
+            imageName: image?.name,
+            otherFields: otherFields
+          })
+
+          return NextResponse.json(
+            { success: true, status: 'pending', message: 'Upload queued due to network issues.' },
+            { status: 202 }
+          )
+        } catch (dbErr) {
+          return NextResponse.json(
+            { error: err.message || 'Upload failed' },
+            { status: 500 }
+          )
+        }
       }
     }
   )
