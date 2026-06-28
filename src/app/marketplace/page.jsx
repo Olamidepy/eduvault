@@ -95,8 +95,24 @@ const SORT_OPTIONS = [
   { id: "price_desc", label: "Price: High to Low" },
 ];
 
+const FALLBACK_IMAGE = "/images/image1.jpg";
+
 function getPreviewImage(material) {
-  return material.coverImageUrl || material.thumbnailUrl || material.image || "/images/image1.jpg";
+  return material.coverImageUrl || material.thumbnailUrl || material.image || FALLBACK_IMAGE;
+}
+
+function MaterialThumbnail({ material }) {
+  const [src, setSrc] = useState(() => getPreviewImage(material));
+  return (
+    <Image
+      src={src}
+      alt={material.title}
+      fill
+      className="object-cover group-hover:scale-105 transition-transform duration-500"
+      onError={() => setSrc(FALLBACK_IMAGE)}
+      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+    />
+  );
 }
 
 function normalizeSubjectOptions(subjects) {
@@ -747,16 +763,7 @@ export default function MarketPage() {
 												href={`/marketplace/${materialId}`}
 												className="relative w-full h-36 bg-gray-100 overflow-hidden block"
 											>
-												<Image
-													src={getPreviewImage(
-														material
-													)}
-													alt={
-														material.title
-													}
-													fill
-													className="object-cover group-hover:scale-105 transition-transform duration-500"
-												/>
+												<MaterialThumbnail material={material} />
 												{material.subject && (
 													<span className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm text-gray-700 font-semibold text-[10px] px-2 py-0.5 rounded-md border border-gray-200 shadow-sm">
 														{material.subject}

@@ -30,10 +30,13 @@ import ShareMaterialButton from "@/components/materials/ShareMaterialButton";
 import { trackRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import RecommendedMaterials from "@/components/materials/RecommendedMaterials";
 import MaterialReviewPanel from "@/components/materials/MaterialReviewPanel";
+import LearnerNotes from "@/components/materials/LearnerNotes";
 import { useAccount } from "wagmi";
 
+const FALLBACK_IMAGE = "/images/image2.jpg";
+
 function getPreviewImage(material) {
-	return material.coverImageUrl || material.thumbnailUrl || material.image || "/images/image2.jpg";
+	return material.coverImageUrl || material.thumbnailUrl || material.image || FALLBACK_IMAGE;
 }
 
 function getPreviewCounts(material) {
