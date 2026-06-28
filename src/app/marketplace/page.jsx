@@ -24,6 +24,7 @@ import {
 import { motion } from "framer-motion";
 
 import Navbar from "@/components/Navbar";
+import ScrollToTop from "@/components/ScrollToTop";
 import SaveMaterialButton from "@/components/materials/SaveMaterialButton";
 import RecentlyViewedMaterials from "@/components/materials/RecentlyViewedMaterials";
 import ResourceStatusBadge from "@/components/materials/ResourceStatusBadge";
@@ -915,6 +916,8 @@ export default function MarketPage() {
 					)}
 				</main>
 			</section>
+
+			<ScrollToTop />
 		</>
 	);
 }
