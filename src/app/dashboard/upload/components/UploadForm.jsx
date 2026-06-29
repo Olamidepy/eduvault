@@ -90,16 +90,45 @@ export default function UploadForm() {
       formData.append("visibility", visibility);
       formData.append("owner", address);
 
-      // 2️⃣ Upload everything to backend (which uploads to Pinata)
-      const uploadRes = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const uploadData = await uploadRes.json();
-      console.log("Pinata Upload Response:", uploadData);
+      // 2️⃣ Upload to backend with retry logic
+      let uploadRes;
+      let uploadData;
+      let attempt = 0;
+      const maxAttempts = 3;
+      const initialDelay = 1000;
 
-      if (!uploadRes.ok || !uploadData?.metadata) {
-        throw new Error(uploadData?.error || "File upload failed");
+      while (true) {
+        attempt++;
+        try {
+          uploadRes = await fetch("/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+          uploadData = await uploadRes.json();
+          console.log("Pinata Upload Response:", uploadData);
+          
+          if (uploadRes.ok && uploadData?.metadata) {
+            break; // Success!
+          }
+
+          const errorMsg = uploadData?.error || `Upload failed with status ${uploadRes?.status}`;
+          
+          // Retry on rate limits (429) or server issues (5xx)
+          const isRetriableStatus = [429, 500, 502, 503, 504].includes(uploadRes?.status);
+          if (attempt >= maxAttempts || !isRetriableStatus) {
+            throw new Error(errorMsg);
+          }
+        } catch (fetchErr) {
+          if (attempt >= maxAttempts) {
+            throw fetchErr;
+          }
+        }
+
+        const backoffDelay = initialDelay * Math.pow(2, attempt - 1);
+        console.warn(`Upload attempt ${attempt} failed. Retrying in ${backoffDelay}ms...`);
+        setError(`Upload attempt ${attempt} failed. Retrying...`);
+        await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+        setError(null);
       }
 
       const tokenURI = uploadData.metadata;
@@ -114,7 +143,21 @@ export default function UploadForm() {
       });
     } catch (err) {
       console.error("Upload or Mint Error:", err);
-      setError(err?.message || "Something went wrong. Please try again.");
+      let friendlyError = err?.message || "Upload failed. Please try again.";
+      if (friendlyError.includes("exceeds the 10MB limit")) {
+        friendlyError = "The selected document exceeds the 10MB limit. Please choose a smaller file.";
+      } else if (friendlyError.includes("exceeds the 5MB limit")) {
+        friendlyError = "The selected thumbnail exceeds the 5MB limit. Please choose a smaller image.";
+      } else if (friendlyError.includes("Unsupported file type") || friendlyError.includes("Unsupported file format")) {
+        friendlyError = "The file type is not supported. Please upload a PDF, Word document, Excel sheet, PowerPoint presentation, text file, or ZIP archive.";
+      } else if (friendlyError.includes("Unsupported thumbnail type")) {
+        friendlyError = "The thumbnail image format is not supported. Please use JPG, PNG, or WEBP.";
+      } else if (friendlyError.includes("fetch") || friendlyError.includes("Failed to fetch") || friendlyError.toLowerCase().includes("network")) {
+        friendlyError = "Network error: Could not reach the upload server. Please check your internet connection.";
+      } else if (friendlyError.toLowerCase().includes("too many requests") || friendlyError.toLowerCase().includes("rate limit") || friendlyError.includes("429")) {
+        friendlyError = "Rate limit exceeded: You've made too many requests. Please wait a bit and try again.";
+      }
+      setError(friendlyError);
       setErrorType("upload");
       setSubmitting(false);
     }
