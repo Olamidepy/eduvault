@@ -1,9 +1,11 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, Address, BytesN, Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Bytes, BytesN, Env,
     IntoVal, Symbol, Vec,
 };
+
+pub mod auth;
 
 const BASIS_POINTS: u32 = 10_000;
 const MAX_PLATFORM_FEE_BPS: u32 = 1_000;
@@ -133,12 +135,13 @@ pub struct EscrowRecord {
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
-    Admin,
     PlatformConfig,
     AllowedAsset(Address),
     PurchaseNonce,
     Entitlement((BytesN<32>, Address)),
     Escrow(u64),
+    PendingAdmin,
+    CreatorTier(Address),
 }
 
 /// Contract errors
@@ -173,6 +176,9 @@ pub enum PurchaseError {
 
     // Escrow errors
     EscrowLocked = 50,
+
+    // Admin transfer errors
+    NoPendingAdminTransfer = 60,
 }
 
 /// Event: purchase.completed
@@ -191,6 +197,7 @@ pub struct PurchaseCompletedEvent {
     pub platform_fee: i128,
     pub seller_net_amount: i128,
     pub entitlement_active: bool,
+    pub transaction_id: Bytes,
 }
 
 /// Event: payout.distributed
@@ -206,6 +213,7 @@ pub struct PayoutDistributedEvent {
     pub role: Symbol,
     pub asset: Address,
     pub amount: i128,
+    pub transaction_id: Bytes,
 }
 
 /// Event: admin.asset_policy_updated
@@ -249,6 +257,32 @@ pub struct EscrowReleasedEvent {
     pub material_id: BytesN<32>,
     pub asset: Address,
     pub amount: i128,
+}
+
+/// Event: admin.transfer_initiated
+#[contractevent(topics = ["admin", "transfer_initiated"], data_format = "vec")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferInitiatedEvent {
+    #[topic]
+    pub from: Address,
+    pub pending_admin: Address,
+}
+
+/// Event: admin.transfer_accepted
+#[contractevent(topics = ["admin", "transfer_accepted"], data_format = "vec")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferAcceptedEvent {
+    #[topic]
+    pub new_admin: Address,
+}
+
+/// Event: creator.tier_updated
+#[contractevent(topics = ["creator", "tier_updated"], data_format = "vec")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatorTierUpdatedEvent {
+    #[topic]
+    pub creator: Address,
+    pub tier: CreatorTier,
 }
 
 /// The PurchaseManager contract
@@ -389,7 +423,7 @@ impl PurchaseManager {
             oracle: None,
         };
 
-        env.storage().persistent().set(&DataKey::Admin, &admin);
+        auth::set_admin_role(&env, &admin);
         env.storage()
             .persistent()
             .set(&DataKey::PlatformConfig, &config);
@@ -419,6 +453,7 @@ impl PurchaseManager {
         material_id: BytesN<32>,
         asset: Address,
         expected_amount: i128,
+        transaction_id: Bytes,
     ) -> Result<u64, PurchaseError> {
         buyer.require_auth();
 
@@ -476,6 +511,7 @@ impl PurchaseManager {
                 role: Symbol::new(&env, "platform_fee"),
                 asset: asset.clone(),
                 amount: platform_fee,
+                transaction_id: transaction_id.clone(),
             }
             .publish(&env);
         }
@@ -497,6 +533,8 @@ impl PurchaseManager {
             total_amount: gross,
             platform_fee,
             seller_net,
+            &transaction_id,
+        )?;
             payout_shares: material.payout_shares.clone(),
             purchase_ledger: current_ledger,
             claimed: false,
@@ -534,6 +572,7 @@ impl PurchaseManager {
             platform_fee,
             seller_net_amount: seller_net,
             entitlement_active: true,
+            transaction_id,
         }
         .publish(&env);
 
@@ -657,8 +696,7 @@ impl PurchaseManager {
         kind: AssetKind,
         enabled: bool,
     ) -> Result<(), PurchaseError> {
-        admin.require_auth();
-        verify_admin(&env, &admin)?;
+        auth::require_admin(&env, &admin)?;
 
         let info = AssetInfo { kind, enabled };
         env.storage()
@@ -684,8 +722,7 @@ impl PurchaseManager {
         platform_fee_bps: u32,
         paused: bool,
     ) -> Result<(), PurchaseError> {
-        admin.require_auth();
-        verify_admin(&env, &admin)?;
+        auth::require_admin(&env, &admin)?;
 
         // Validate platform fee
         if platform_fee_bps > MAX_PLATFORM_FEE_BPS {
@@ -737,8 +774,7 @@ impl PurchaseManager {
         admin: Address,
         oracle: Option<Address>,
     ) -> Result<(), PurchaseError> {
-        admin.require_auth();
-        verify_admin(&env, &admin)?;
+        auth::require_admin(&env, &admin)?;
 
         let mut config = get_platform_config(&env)?;
         config.oracle = oracle;
@@ -751,8 +787,7 @@ impl PurchaseManager {
 
     /// Update registry address (admin only, for migrations)
     pub fn set_registry(env: Env, admin: Address, registry: Address) -> Result<(), PurchaseError> {
-        admin.require_auth();
-        verify_admin(&env, &admin)?;
+        auth::require_admin(&env, &admin)?;
 
         let mut config = get_platform_config(&env)?;
         config.registry = registry;
@@ -764,11 +799,44 @@ impl PurchaseManager {
         Ok(())
     }
 
+    /// Update the platform fee rate (admin only).
+    ///
+    /// Updates the platform fee to a new rate, validated against the maximum
+    /// ceiling of 10% (1 000 basis points). The change is applied instantly
+    /// to all subsequent purchases.
+    pub fn update_platform_fee(
+        env: Env,
+        admin: Address,
+        new_platform_fee_bps: u32,
+    ) -> Result<(), PurchaseError> {
+        admin.require_auth();
+        verify_admin(&env, &admin)?;
+
+        if new_platform_fee_bps > MAX_PLATFORM_FEE_BPS {
+            return Err(PurchaseError::InvalidPlatformFee);
+        }
+
+        let mut config = get_platform_config(&env)?;
+        config.platform_fee_bps = new_platform_fee_bps;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::PlatformConfig, &config);
+
+        PlatformConfigUpdatedEvent {
+            treasury: config.treasury.clone(),
+            platform_fee_bps: new_platform_fee_bps,
+            paused: config.paused,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
     /// Pause contract operations (admin only)
     /// When paused, all state-modifying functions will fail
     pub fn pause(env: Env, admin: Address) -> Result<(), PurchaseError> {
-        admin.require_auth();
-        verify_admin(&env, &admin)?;
+        auth::require_admin(&env, &admin)?;
 
         let mut config = get_platform_config(&env)?;
         config.paused = true;
@@ -791,8 +859,7 @@ impl PurchaseManager {
     /// Unpause contract operations (admin only)
     /// When unpaused, normal operations resume
     pub fn unpause(env: Env, admin: Address) -> Result<(), PurchaseError> {
-        admin.require_auth();
-        verify_admin(&env, &admin)?;
+        auth::require_admin(&env, &admin)?;
 
         let mut config = get_platform_config(&env)?;
         config.paused = false;
@@ -818,8 +885,7 @@ impl PurchaseManager {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), PurchaseError> {
-        admin.require_auth();
-        verify_admin(&env, &admin)?;
+        auth::require_admin(&env, &admin)?;
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
     }
@@ -954,18 +1020,6 @@ fn get_platform_config(env: &Env) -> Result<PlatformConfig, PurchaseError> {
         .ok_or(PurchaseError::NotAuthorized)
 }
 
-fn verify_admin(env: &Env, admin: &Address) -> Result<(), PurchaseError> {
-    let _ = get_platform_config(env)?;
-    let stored_admin: Address = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Admin)
-        .ok_or(PurchaseError::NotAuthorized)?;
-    if &stored_admin != admin {
-        return Err(PurchaseError::NotAuthorized);
-    }
-    Ok(())
-}
 
 fn is_asset_allowed(env: &Env, asset: &Address) -> bool {
     env.storage()
@@ -1058,6 +1112,10 @@ fn get_entitlement_internal(
     env: &Env,
     material_id: &BytesN<32>,
     buyer: &Address,
+    payout_shares: &Vec<PayoutShare>,
+    asset: &Address,
+    seller_net: i128,
+    transaction_id: &Bytes,
 ) -> Option<EntitlementRecord> {
     env.storage()
         .persistent()
@@ -1120,6 +1178,7 @@ fn distribute_payout_shares_from_contract(
                 role: Symbol::new(env, "creator_share"),
                 asset: escrow.asset.clone(),
                 amount: share_amount,
+                transaction_id: transaction_id.clone(),
             }
             .publish(env);
         }

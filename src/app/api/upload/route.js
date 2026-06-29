@@ -4,6 +4,7 @@ import { withApiHardening } from '@/lib/api/hardening'
 import { normalizeStringList, sanitizeObject, validateUploadPayload, validateUploadFileMetadata } from '@/lib/api/validation'
 import { pinata } from '@/lib/pinata'
 import { validatePinataResponse, validateGatewayUrl, retryWithBackoff } from '@/lib/api/storage'
+import { getDb } from '@/lib/mongodb'
 
 export const dynamic = 'force-dynamic'
 
@@ -240,6 +241,15 @@ export async function POST(request) {
               { status: 500 }
             )
           }
+        const uploadedFile = await pinata.upload.public.file(file)
+        const fileUrl = await pinata.gateways.public.convert(uploadedFile.cid)
+        results.fileUrl = fileUrl
+
+        // 5️⃣ Upload thumbnail (if provided)
+        if (image) {
+          const fileThumb = await pinata.upload.public.file(image)
+          const imgUrl = await pinata.gateways.public.convert(fileThumb.cid)
+          results.imgUrl = imgUrl
         }
 
         // 6️⃣ Prepare the rest of the form data as JSON
@@ -331,6 +341,9 @@ export async function POST(request) {
             { status: 500 }
           )
         }
+        const uploadedJson = await pinata.upload.public.json(metadataJSON)
+        const jsonUrl = await pinata.gateways.public.convert(uploadedJson.cid)
+        results.metadataUrl = jsonUrl
 
         auditLog({
           event: 'upload_complete',
@@ -344,6 +357,10 @@ export async function POST(request) {
           success: true,
           storageKey: results.storageKey,
           fileUrl: results.fileUrl,
+        // 8️⃣ Return the CID as storageKey
+        return NextResponse.json({
+          success: true,
+          storageKey: uploadedFile.cid,
           image: results.imgUrl || '',
           metadata: results.metadataUrl,
         })
@@ -359,6 +376,53 @@ export async function POST(request) {
           { error: err.message || 'Upload failed' },
           { status: 500 }
         )
+        
+        // Fallback: save to MongoDB pending_pins
+        try {
+          const db = await getDb()
+          const pendingCollection = db.collection('pending_pins')
+          
+          const form = await request.clone().formData().catch(() => null);
+          if (!form) throw new Error("Could not clone form data");
+
+          const file = form.get('file')
+          const image = form.get('thumbnail')
+          
+          const fileBuffer = Buffer.from(await file.arrayBuffer())
+          let imageBuffer = null
+          if (image) {
+            imageBuffer = Buffer.from(await image.arrayBuffer())
+          }
+          
+          const otherFields = {}
+          for (const [key, value] of form.entries()) {
+            if (key !== 'file' && key !== 'thumbnail') {
+              otherFields[key] = value
+            }
+          }
+
+          await pendingCollection.insertOne({
+            status: 'pending',
+            createdAt: new Date(),
+            fileData: fileBuffer,
+            fileType: file?.type,
+            fileName: file?.name,
+            imageData: imageBuffer,
+            imageType: image?.type,
+            imageName: image?.name,
+            otherFields: otherFields
+          })
+
+          return NextResponse.json(
+            { success: true, status: 'pending', message: 'Upload queued due to network issues.' },
+            { status: 202 }
+          )
+        } catch (dbErr) {
+          return NextResponse.json(
+            { error: err.message || 'Upload failed' },
+            { status: 500 }
+          )
+        }
       }
     }
   )

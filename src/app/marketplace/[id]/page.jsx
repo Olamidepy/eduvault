@@ -26,13 +26,17 @@ import { useEntitlement } from "@/hooks/api/useEntitlements";
 import { QueryStateProvider } from "@/components/common/QueryStateProvider";
 import Web3ErrorBoundary from "@/components/web3/Web3ErrorBoundary";
 import SaveMaterialButton from "@/components/materials/SaveMaterialButton";
+import ShareMaterialButton from "@/components/materials/ShareMaterialButton";
 import { trackRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import RecommendedMaterials from "@/components/materials/RecommendedMaterials";
 import MaterialReviewPanel from "@/components/materials/MaterialReviewPanel";
+import LearnerNotes from "@/components/materials/LearnerNotes";
 import { useAccount } from "wagmi";
 
+const FALLBACK_IMAGE = "/images/image2.jpg";
+
 function getPreviewImage(material) {
-	return material.coverImageUrl || material.thumbnailUrl || material.image || "/images/image2.jpg";
+	return material.coverImageUrl || material.thumbnailUrl || material.image || FALLBACK_IMAGE;
 }
 
 function getPreviewCounts(material) {
@@ -278,8 +282,9 @@ function PurchaseCard({
 			</div>
 
 			<div className="flex flex-col sm:flex-row sm:flex-wrap sm:justify-start items-stretch sm:items-center gap-3 w-full">
-				<div className="w-full sm:w-auto sm:flex-1">
-					<SaveMaterialButton material={material} variant="detail" className="w-full sm:w-auto" />
+				<div className="w-full sm:w-auto sm:flex-1 flex gap-2">
+					<SaveMaterialButton material={material} variant="detail" className="flex-1" />
+					<ShareMaterialButton material={material} className="flex-1" />
 				</div>
 				{isOwned ? (
 					<button

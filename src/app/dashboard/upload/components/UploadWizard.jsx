@@ -16,8 +16,9 @@ import {
   FaExclamationTriangle 
 } from "react-icons/fa";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
+import { FaCloudUploadAlt, FaCheck, FaArrowRight, FaArrowLeft, FaFileAlt, FaTags, FaDollarSign, FaEye, FaExclamationTriangle } from "react-icons/fa";
+import { useWallet } from "@/hooks/useWallet";
 import { abi } from "../../../../../contracts/EduVaultAbi.js";
-import { celoSepolia } from "wagmi/chains";
 import { parseAbiItem } from "viem";
 import { useCreateMaterial, useUploadFile } from "@/hooks/api/useMaterials";
 import TransactionStatusPanel from "@/components/transactions/TransactionStatusPanel";
@@ -39,23 +40,16 @@ const STEPS = [
 ];
 
 export default function UploadWizard() {
-  const { address, chainId } = useAccount();
-  const { writeContract, data: txHash, error: writeError, isPending } = useWriteContract();
-  const {
-    activeTransaction,
-    beginTransaction,
-    markStatus,
-    confirmTransaction,
-    failTransaction,
-    clearTransaction,
-  } = useTransactionCenter();
-  const {
-    isLoading: isWaiting,
-    isSuccess: isConfirmed,
-    isError: isFailed,
-    data: receipt,
-  } = useWaitForTransactionReceipt({ hash: txHash });
-  const { switchChainAsync } = useSwitchChain();
+  const { address } = useWallet();
+  const writeContract = () => {};
+  const txHash = null;
+  const writeError = null;
+  const isPending = false;
+  const isWaiting = false;
+  const isConfirmed = false;
+  const isFailed = false;
+  const receipt = null;
+  const switchChainAsync = async () => {};
 
   const [currentStep, setCurrentStep] = useState(1);
 
@@ -89,6 +83,7 @@ export default function UploadWizard() {
   const createMaterialMutation = useCreateMaterial();
 
   const chainMismatch = address && chainId && !isUploadChain(chainId);
+  const chainMismatch = false;
 
   useEffect(() => {
     async function loadTaxonomy() {
@@ -196,6 +191,30 @@ export default function UploadWizard() {
     }
   };
 
+  const handleSwitchChain = async () => {
+    setError(null);
+    setSwitchingChain(true);
+    try {
+      await switchChainAsync({ chainId: celoSepolia.id });
+    } catch (err) {
+      if (err.code === "ACTION_REJECTED" || err.message?.includes("User rejected")) {
+        setError("Network switch was rejected. Please switch to Stellar Testnet to publish.");
+        setErrorType("chain");
+      } else if (err.message?.includes("does not support")) {
+        setError("Your wallet does not support switching to Stellar Testnet. Please switch manually.");
+        setErrorType("chain");
+      } else {
+        setError(err.message || "Failed to switch network. Please try manually.");
+        setErrorType("chain");
+      }
+    } finally {
+      setSwitchingChain(false);
+    }
+  };
+
+  const uploadFileMutation = useUploadFile();
+  const createMaterialMutation = useCreateMaterial();
+
   const handleSubmit = async () => {
     setError(null);
     setErrorType(null);
@@ -208,6 +227,7 @@ export default function UploadWizard() {
 
     if (chainMismatch) {
       setError("Please switch your network to Celo Sepolia.");
+      setError(`Please switch to Stellar Testnet before publishing. Use the network switch button above.`);
       setErrorType("chain");
       return;
     }
@@ -285,7 +305,7 @@ export default function UploadWizard() {
         abi,
         functionName: "mint",
         args: [tokenURI],
-        chain: celoSepolia,
+        chain: "Stellar Testnet",
       });
     } catch (err) {
       console.error("Upload Error:", err);
@@ -323,6 +343,7 @@ export default function UploadWizard() {
         setErrorType("wallet");
       } else if (writeError.message?.includes("insufficient funds")) {
         friendlyError = "Insufficient funds for gas. Please add CELO to your wallet.";
+        setError("Insufficient funds for XLM transaction fees. Please add XLM to your wallet.");
         setErrorType("wallet");
       } else {
         setErrorType("chain");
@@ -611,7 +632,7 @@ export default function UploadWizard() {
                 Wrong Network Detected
               </p>
               <p className="text-xs text-amber-700 mb-3">
-                Publishing requires the <strong>{celoSepolia.name}</strong> network. Your wallet is currently on chain ID <strong>{chainId}</strong>.
+              Publishing requires the <strong>Stellar Testnet</strong> network. Your wallet is currently on the wrong network.
               </p>
               <button
                 type="button"
@@ -619,7 +640,7 @@ export default function UploadWizard() {
                 disabled={switchingChain}
                 className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white text-xs font-medium rounded-md transition"
               >
-                {switchingChain ? "Switching..." : `Switch to ${celoSepolia.name}`}
+                {switchingChain ? "Switching..." : `Switch to Stellar Testnet`}
               </button>
             </div>
           </div>
@@ -690,6 +711,40 @@ export default function UploadWizard() {
                     Upload your lecture notes, projects, or study materials. Supported formats: PDF, DOCX, PPTX, ZIP (max 10MB).
                   </p>
                 </div>
+        {/* Step 3: Pricing & Rights */}
+        {currentStep === 3 && (
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-lg font-semibold mb-2">Pricing & Usage Rights</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Set your price and define how others can use your material.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Price (XLM) - Optional</label>
+              <input
+                type="number"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="0.00"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Leave empty for free material</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Usage Rights</label>
+              <select
+                value={usageRights}
+                onChange={(e) => setUsageRights(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+              >
+                <option>Standard License (download only)</option>
+                <option>Creative Commons</option>
+                <option>Private Use Only</option>
+              </select>
+            </div>
 
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition">
                   <input
@@ -808,6 +863,8 @@ export default function UploadWizard() {
                   <p className="text-sm text-gray-600 mb-4">
                     Set your price and define how others can use your material.
                   </p>
+                  <p className="text-xs text-gray-500 mb-1">Price</p>
+                  <p className="text-sm font-medium">{price ? `${price} XLM` : "Free"}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -947,6 +1004,12 @@ export default function UploadWizard() {
               </div>
             )}
           </>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                <strong>Note:</strong> Publishing will mint your material as an NFT on the blockchain. XLM transaction fees will apply.
+              </p>
+            </div>
+          </div>
         )}
       </div>
 

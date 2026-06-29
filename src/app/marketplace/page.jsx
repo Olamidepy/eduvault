@@ -1,4 +1,7 @@
 // Marketplace page: discovery filters are reflected in the URL for shareable searches.
+// PERF-AUDIT: See docs/tasks/marketplace-performance-audit.md for full findings.
+// Slow components: force-dynamic SSR bypass, eager RecentlyViewedMaterials load,
+// per-mount /api/subjects fetch, framer-motion on every card, no Suspense boundaries.
 
 "use client";
 
@@ -21,6 +24,7 @@ import {
 import { motion } from "framer-motion";
 
 import Navbar from "@/components/Navbar";
+import ScrollToTop from "@/components/ScrollToTop";
 import SaveMaterialButton from "@/components/materials/SaveMaterialButton";
 import RecentlyViewedMaterials from "@/components/materials/RecentlyViewedMaterials";
 import ResourceStatusBadge from "@/components/materials/ResourceStatusBadge";
@@ -91,8 +95,24 @@ const SORT_OPTIONS = [
   { id: "price_desc", label: "Price: High to Low" },
 ];
 
+const FALLBACK_IMAGE = "/images/image1.jpg";
+
 function getPreviewImage(material) {
-  return material.coverImageUrl || material.thumbnailUrl || material.image || "/images/image1.jpg";
+  return material.coverImageUrl || material.thumbnailUrl || material.image || FALLBACK_IMAGE;
+}
+
+function MaterialThumbnail({ material }) {
+  const [src, setSrc] = useState(() => getPreviewImage(material));
+  return (
+    <Image
+      src={src}
+      alt={material.title}
+      fill
+      className="object-cover group-hover:scale-105 transition-transform duration-500"
+      onError={() => setSrc(FALLBACK_IMAGE)}
+      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+    />
+  );
 }
 
 function normalizeSubjectOptions(subjects) {
@@ -177,6 +197,42 @@ export default function MarketPage() {
 		setCurrentPage(Number(params.get("page") || 1));
 
 		setHydrated(true);
+	}, []);
+
+	// PERF-AUDIT: Measure initial load time using Navigation Timing API.
+	// Logs are only emitted in development so they don't reach production.
+	useEffect(() => {
+		if (typeof window === "undefined" || typeof performance === "undefined") return;
+		if (process.env.NODE_ENV !== "development") return;
+
+		const report = () => {
+			try {
+				const [navEntry] = performance.getEntriesByType("navigation");
+				if (navEntry) {
+					console.group("[Perf Audit] /marketplace initial load");
+					console.log(`TTFB:            ${navEntry.responseStart.toFixed(0)} ms`);
+					console.log(`DOM Interactive: ${navEntry.domInteractive.toFixed(0)} ms`);
+					console.log(`DOM Complete:    ${navEntry.domComplete.toFixed(0)} ms`);
+					console.log(`Load Event End:  ${navEntry.loadEventEnd.toFixed(0)} ms`);
+					console.groupEnd();
+				}
+				// Also report any long tasks if PerformanceObserver is available
+				const longTaskEntries = performance.getEntriesByType("longtask");
+				if (longTaskEntries.length > 0) {
+					console.warn(`[Perf Audit] ${longTaskEntries.length} long task(s) detected on /marketplace:`,
+						longTaskEntries.map(e => `${e.name} — ${e.duration.toFixed(0)} ms`));
+				}
+			} catch {
+				// Performance API not fully available in this environment
+			}
+		};
+
+		// Wait for load event to complete before reading navigation entries
+		if (document.readyState === "complete") {
+			report();
+		} else {
+			window.addEventListener("load", report, { once: true });
+		}
 	}, []);
 
 	// Load subjects
@@ -707,16 +763,7 @@ export default function MarketPage() {
 												href={`/marketplace/${materialId}`}
 												className="relative w-full h-36 bg-gray-100 overflow-hidden block"
 											>
-												<Image
-													src={getPreviewImage(
-														material
-													)}
-													alt={
-														material.title
-													}
-													fill
-													className="object-cover group-hover:scale-105 transition-transform duration-500"
-												/>
+												<MaterialThumbnail material={material} />
 												{material.subject && (
 													<span className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm text-gray-700 font-semibold text-[10px] px-2 py-0.5 rounded-md border border-gray-200 shadow-sm">
 														{material.subject}
@@ -876,6 +923,8 @@ export default function MarketPage() {
 					)}
 				</main>
 			</section>
+
+			<ScrollToTop />
 		</>
 	);
 }
